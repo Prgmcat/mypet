@@ -4,6 +4,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'accounts.dart';
 import 'api_client.dart';
 import 'cache.dart';
 import 'models.dart';
@@ -26,6 +27,7 @@ class SessionState {
   final String? token;
   final User? user;
   final String? error;
+  final int? errorCode;
 
   const SessionState({
     required this.loading,
@@ -33,6 +35,7 @@ class SessionState {
     this.token,
     this.user,
     this.error,
+    this.errorCode,
   });
 
   factory SessionState.initial() => const SessionState(
@@ -48,6 +51,7 @@ class SessionState {
     String? token,
     User? user,
     String? error,
+    int? errorCode,
     bool clearToken = false,
     bool clearUser = false,
     bool clearError = false,
@@ -58,6 +62,7 @@ class SessionState {
       token: clearToken ? null : (token ?? this.token),
       user: clearUser ? null : (user ?? this.user),
       error: clearError ? null : (error ?? this.error),
+      errorCode: clearError ? null : (errorCode ?? this.errorCode),
     );
   }
 }
@@ -117,6 +122,11 @@ class SessionController extends StateNotifier<SessionState> {
         deviceName: await _deviceName(),
       );
       await _secure.write(key: _tokenKey, value: result.token);
+      await AccountStore.remember(
+        username: username,
+        password: password,
+        displayName: result.user.displayName,
+      );
       state = SessionState(
         loading: false,
         serverUrl: defaultServerUrl,
@@ -124,7 +134,7 @@ class SessionController extends StateNotifier<SessionState> {
         user: result.user,
       );
     } on ApiException catch (e) {
-      state = state.copyWith(loading: false, error: e.message);
+      state = state.copyWith(loading: false, error: e.message, errorCode: e.code);
     } catch (_) {
       state = state.copyWith(loading: false, error: '登录失败，请稍后重试');
     }

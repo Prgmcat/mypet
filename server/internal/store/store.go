@@ -174,7 +174,7 @@ func (s *Store) UserByToken(ctx context.Context, tokenHash string) (User, Device
 
 func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, last_seen_at, created_at, revoked_at
-		FROM devices WHERE user_id = ? ORDER BY created_at DESC`, userID)
+		FROM devices WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -197,13 +197,22 @@ func (s *Store) ListDevices(ctx context.Context, userID string) ([]Device, error
 	return out, rows.Err()
 }
 
+// RevokeDevice is idempotent: revoking an already-revoked device succeeds so
+// a stale list or a double tap cannot surface a spurious "not found".
 func (s *Store) RevokeDevice(ctx context.Context, deviceID, userID string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, db.Now(), deviceID, userID)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
-	if n == 0 {
+	if n > 0 {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM devices WHERE id = ? AND user_id = ?`, deviceID, userID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -234,12 +243,20 @@ func (s *Store) ListAllDevices(ctx context.Context) ([]AdminDevice, error) {
 	return out, rows.Err()
 }
 
+// RevokeDeviceAsAdmin mirrors RevokeDevice's idempotent behaviour.
 func (s *Store) RevokeDeviceAsAdmin(ctx context.Context, deviceID string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, db.Now(), deviceID)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM devices WHERE id = ?`, deviceID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
 		return ErrNotFound
 	}
 	return nil

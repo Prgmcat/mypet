@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
 import '../../core/format_time.dart';
+import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../ai/ai_settings_page.dart';
@@ -45,76 +46,83 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   }
 
   Future<void> _showDevices() async {
+    List<Device> devices;
     try {
-      final devices = await ref.read(apiClientProvider).listDevices();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
-            title: const Text('设备管理'),
-            content: SizedBox(
-              width: 380,
-              child: devices.isEmpty
-                  ? const Text('还没有绑定设备')
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: devices.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final d = devices[index];
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.smartphone_outlined),
-                          title: Text(d.name.isEmpty ? 'Android' : d.name),
-                          subtitle: Text((d.lastSeenAt ?? '').isEmpty
-                              ? '尚未上报在线时间'
-                              : '最后在线 ${formatLocalTime(d.lastSeenAt!)}'),
-                          trailing: IconButton(
-                            tooltip: '吊销',
-                            icon: const Icon(Icons.logout, size: 20),
-                            onPressed: () async {
-                              final ok = await _confirm(
-                                context,
-                                '吊销设备',
-                                '吊销后该设备需要重新登录，确定继续吗？',
-                              );
-                              if (!ok) return;
-                              try {
-                                await ref
-                                    .read(apiClientProvider)
-                                    .revokeDevice(d.id);
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  const SnackBar(content: Text('设备已吊销')),
-                                );
-                              } on ApiException catch (e) {
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(e.message)),
-                                );
-                              }
-                            },
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('关闭'),
-              ),
-            ],
-          ),
-        ),
-      );
+      devices = await ref.read(apiClientProvider).listDevices();
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.message)));
+      return;
     }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('设备管理'),
+          content: SizedBox(
+            width: 380,
+            child: devices.isEmpty
+                ? const Text('还没有绑定设备')
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: devices.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final d = devices[index];
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.smartphone_outlined),
+                        title: Text(d.name.isEmpty ? 'Android' : d.name),
+                        subtitle: Text((d.lastSeenAt ?? '').isEmpty
+                            ? '尚未上报在线时间'
+                            : '最后在线 ${formatLocalTime(d.lastSeenAt!)}'),
+                        trailing: IconButton(
+                          tooltip: '吊销',
+                          icon: const Icon(Icons.logout, size: 20),
+                          onPressed: () async {
+                            final ok = await _confirm(
+                              context,
+                              '吊销设备',
+                              '吊销后该设备需要重新登录，确定继续吗？',
+                            );
+                            if (!ok) return;
+                            try {
+                              await ref
+                                  .read(apiClientProvider)
+                                  .revokeDevice(d.id);
+                              if (!context.mounted) return;
+                              // Drop the row right away instead of closing.
+                              setDialogState(() {
+                                devices = devices
+                                    .where((item) => item.id != d.id)
+                                    .toList(growable: false);
+                              });
+                              ScaffoldMessenger.of(this.context)
+                                  .showSnackBar(
+                                const SnackBar(content: Text('设备已吊销')),
+                              );
+                            } on ApiException catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(SnackBar(content: Text(e.message)));
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _changePassword() async {
@@ -210,6 +218,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       '退出后会清除本机设备凭证，服务器数据不受影响。',
     );
     if (!ok || !mounted) return;
+    await _signOut();
+  }
+
+  Future<void> _switchAccount() async {
+    final ok = await _confirm(
+      context,
+      '切换账号',
+      '将退出当前账号并回到登录页，可使用本机已保存的账号一键登录。',
+    );
+    if (!ok || !mounted) return;
+    await _signOut();
+  }
+
+  Future<void> _signOut() async {
     final navigator = Navigator.of(context);
     try {
       await NotificationService.cancelAll();
@@ -337,6 +359,14 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   subtitle: const Text('查看并吊销已登录设备'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _showDevices,
+                ),
+                const Divider(height: 1, indent: 16, endIndent: 16),
+                ListTile(
+                  leading: const Icon(Icons.switch_account_outlined),
+                  title: const Text('切换账号'),
+                  subtitle: const Text('退出当前账号，使用已保存的账号登录'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: _switchAccount,
                 ),
                 const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(

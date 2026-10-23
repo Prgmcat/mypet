@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/accounts.dart';
 import '../../core/session.dart';
 import 'register_page.dart';
 
@@ -15,8 +16,21 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   final _formKey = GlobalKey<FormState>();
   final _username = TextEditingController();
   final _password = TextEditingController();
+  List<SavedAccount> _accounts = const [];
   bool _loading = false;
   bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAccounts();
+  }
+
+  Future<void> _loadAccounts() async {
+    final accounts = await AccountStore.load();
+    if (!mounted) return;
+    setState(() => _accounts = accounts);
+  }
 
   @override
   void dispose() {
@@ -40,6 +54,60 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         SnackBar(content: Text(error)),
       );
     }
+  }
+
+  /// One-tap sign-in with a locally remembered account.
+  Future<void> _loginWith(SavedAccount account) async {
+    if (_loading) return;
+    _username.text = account.username;
+    _password.text = account.password;
+    setState(() => _loading = true);
+    await ref.read(sessionProvider.notifier).login(
+          username: account.username,
+          password: account.password,
+        );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    final session = ref.read(sessionProvider);
+    final error = session.error;
+    if (error == null) return;
+    // The stored password no longer works; drop it so the next tap cannot
+    // fail the same way. Any other error (network, server) keeps it.
+    if (session.errorCode == 20005) {
+      await AccountStore.remove(account.username);
+      await _loadAccounts();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('账号密码已变更，请手动输入密码登录')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error)),
+    );
+  }
+
+  Future<void> _removeAccount(SavedAccount account) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('移除账号'),
+        content: Text('从本机移除「${account.username}」后，下次需要手动输入密码。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('移除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await AccountStore.remove(account.username);
+    await _loadAccounts();
   }
 
   @override
@@ -70,6 +138,40 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(color: Colors.black54)),
                     const SizedBox(height: 28),
+                    if (_accounts.isNotEmpty) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('已保存的账号',
+                            style: theme.textTheme.labelLarge
+                                ?.copyWith(color: Colors.black54)),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final account in _accounts)
+                        _SavedAccountTile(
+                          account: account,
+                          enabled: !_loading,
+                          onTap: () => _loginWith(account),
+                          onRemove: () => _removeAccount(account),
+                        ),
+                      const SizedBox(height: 4),
+                      Text('点按账号即可登录；密码只保存在本机安全存储。',
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: Colors.black45)),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Expanded(child: Divider()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            child: Text('使用其他账号',
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(color: Colors.black45)),
+                          ),
+                          const Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                    ],
                     TextFormField(
                       controller: _username,
                       textInputAction: TextInputAction.next,
@@ -132,6 +234,64 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedAccountTile extends StatelessWidget {
+  const _SavedAccountTile({
+    required this.account,
+    required this.enabled,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  final SavedAccount account;
+  final bool enabled;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label =
+        account.displayName.trim().isEmpty ? account.username : account.displayName;
+    final initial =
+        label.isEmpty ? '?' : label.substring(0, 1).toUpperCase();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0x1F000000)),
+      ),
+      child: ListTile(
+        enabled: enabled,
+        onTap: enabled ? onTap : null,
+        leading: CircleAvatar(
+          radius: 20,
+          backgroundColor: const Color(0xFFF1E4D8),
+          child: Text(
+            initial,
+            style: TextStyle(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          '@${account.username}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton(
+          tooltip: '移除账号',
+          onPressed: enabled ? onRemove : null,
+          icon: const Icon(Icons.close, size: 20),
         ),
       ),
     );

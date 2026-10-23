@@ -214,15 +214,38 @@ class _HomePageState extends ConsumerState<HomePage> {
         ],
       ),
     );
-    if (ok == true) {
-      try {
-        await NotificationService.cancelAll();
-      } catch (_) {
-        // Notification cleanup must never block logout.
-      }
-      if (!mounted) return;
-      await ref.read(sessionProvider.notifier).logout();
+    if (ok == true) await _signOut();
+  }
+
+  Future<void> _switchAccount() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('切换账号'),
+        content: const Text('将退出当前账号并回到登录页，可使用本机已保存的账号一键登录。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('切换'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _signOut();
+  }
+
+  Future<void> _signOut() async {
+    try {
+      await NotificationService.cancelAll();
+    } catch (_) {
+      // Notification cleanup must never block logout.
     }
+    if (!mounted) return;
+    await ref.read(sessionProvider.notifier).logout();
   }
 
   @override
@@ -262,6 +285,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                 case 'settings':
                   _openSettings();
                   break;
+                case 'switch':
+                  _switchAccount();
+                  break;
                 case 'logout':
                   _logout();
                   break;
@@ -271,6 +297,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               _menuItem('ai', Icons.auto_awesome_outlined, 'AI 助手'),
               _menuItem('reminders', Icons.notifications_none, '照护提醒'),
               _menuItem('settings', Icons.settings_outlined, '设置'),
+              _menuItem('switch', Icons.switch_account_outlined, '切换账号'),
               const PopupMenuDivider(height: 1),
               _menuItem('logout', Icons.logout, '退出登录', danger: true),
             ],
