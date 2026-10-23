@@ -1,14 +1,17 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/api_client.dart';
 import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
+import 'avatar_crop_page.dart';
 import 'pet_avatar.dart';
 
 class PetFormPage extends ConsumerStatefulWidget {
@@ -94,15 +97,28 @@ class _PetFormPageState extends ConsumerState<PetFormPage> {
     try {
       final picked = await ImagePicker().pickImage(
         source: source,
-        imageQuality: 80,
-        maxWidth: 800,
+        imageQuality: 90,
+        maxWidth: 1200,
       );
-      if (picked != null && mounted) {
-        setState(() => _avatarFile = picked);
-      }
+      if (picked == null || !mounted) return;
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      final cropped = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(
+          builder: (_) => AvatarCropPage(imageBytes: bytes),
+        ),
+      );
+      if (cropped == null || cropped.isEmpty || !mounted) return;
+      final dir = await getTemporaryDirectory();
+      final file = File(
+        '${dir.path}/pet-avatar-${DateTime.now().millisecondsSinceEpoch}.png',
+      );
+      await file.writeAsBytes(cropped, flush: true);
+      if (!mounted) return;
+      setState(() => _avatarFile = XFile(file.path));
     } catch (_) {
       if (!mounted) return;
-      showToast(context, '选择图片失败');
+      showToast(context, '选择或裁剪图片失败');
     }
   }
 
