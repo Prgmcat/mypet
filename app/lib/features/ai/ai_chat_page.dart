@@ -52,6 +52,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   List<AiProviderConfig> _providers = const [];
   AiProviderConfig? _config;
   String _apiKey = '';
+  bool _configLoaded = false;
   String _streamingText = '';
   bool _sending = false;
   bool _listening = false;
@@ -93,6 +94,10 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Future<void> _bootstrap() async {
+    // Resolve the provider first so the UI never flashes the "not configured"
+    // banner while pet contexts are still loading.
+    await _loadConfig();
+    if (mounted) setState(() {});
     try {
       final api = ref.read(apiClientProvider);
       final pets = await api.listPets();
@@ -111,7 +116,6 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     } catch (_) {
       // Context is best-effort; chat can still work without it.
     }
-    await _loadConfig();
     if (!mounted) return;
     setState(() {});
     _scrollToBottom();
@@ -168,6 +172,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       }
     }
     if (picked == null && usable.isNotEmpty) picked = usable.first;
+    _configLoaded = true;
     if (picked == null) {
       _config = null;
       _apiKey = '';
@@ -238,6 +243,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         ? List<String>.from(retryImages ?? const [])
         : List<String>.from(_pendingImages);
     if (text.isEmpty && images.isEmpty) return;
+    if (!_configLoaded) {
+      await _loadConfig();
+      if (!mounted) return;
+      setState(() {});
+    }
     if (_config == null || _apiKey.isEmpty) {
       _snack('还没有可用的 AI 服务，请先在设置中配置 Key');
       await _openSettings();
@@ -580,6 +590,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   Future<void> _pickImages() async {
     if (_pickingImages) return;
+    if (!_configLoaded) {
+      await _loadConfig();
+      if (!mounted) return;
+      setState(() {});
+    }
     final config = _config;
     if (config == null) {
       _snack('请先配置 AI 服务');
@@ -1036,7 +1051,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       ),
       body: Column(
         children: [
-          if (_config == null)
+          if (_configLoaded && _config == null)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
