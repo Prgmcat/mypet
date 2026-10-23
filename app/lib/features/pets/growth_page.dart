@@ -168,20 +168,6 @@ class _GrowthPageState extends ConsumerState<GrowthPage> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF7EFE6),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Text(
-                          '记录第一次、玩耍和日常的小开心。'
-                          '也可以直接在 AI 对话里说，比如「今天团子抓到一只蝴蝶」，'
-                          '会自动写进成长历程。',
-                          style: TextStyle(fontSize: 13, color: Colors.black54),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
                       if (_entries == null || _entries!.isEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 70),
@@ -191,10 +177,6 @@ class _GrowthPageState extends ConsumerState<GrowthPage> {
                               const SizedBox(height: 12),
                               Text('还没有成长记录',
                                   style: theme.textTheme.titleMedium),
-                              const SizedBox(height: 6),
-                              const Text('和它相处的每个小瞬间都值得记下来',
-                                  style: TextStyle(
-                                      color: Colors.black54, fontSize: 12)),
                             ],
                           ),
                         )

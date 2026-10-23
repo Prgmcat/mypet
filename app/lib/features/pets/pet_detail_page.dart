@@ -418,7 +418,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                       ?.copyWith(fontWeight: FontWeight.w700)),
               subtitle: Text(
                 growthRecords.isEmpty
-                    ? '记录第一次、玩耍和日常的小开心'
+                    ? '还没有记录'
                     : '${growthRecords.length} 条 · ${growthRecords.first.title}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
