@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ai/ai_client.dart';
+import '../../core/toast.dart';
 import '../../core/ai/ai_config.dart';
 import '../../core/session.dart';
 
@@ -44,12 +45,12 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     for (final config in configs) {
       final key = await AiConfigStore.apiKey(_userId, config.id);
       if (key != null && key.isNotEmpty) {
-        hints[config.id] =
-            key.length <= 8 ? '已保存' : '已保存 · 末 4 位 ${key.substring(key.length - 4)}';
+        hints[config.id] = key.length <= 8
+            ? '已保存'
+            : '已保存 · 末 4 位 ${key.substring(key.length - 4)}';
       }
     }
-    final configured =
-        configs.where((c) => hints.containsKey(c.id)).toList();
+    final configured = configs.where((c) => hints.containsKey(c.id)).toList();
     if (configured.isNotEmpty) {
       AiProviderConfig active = configured.first;
       for (final config in configured) {
@@ -111,9 +112,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                           ? '例如 https://api.anthropic.com'
                           : '需包含 /v1，例如 https://api.deepseek.com/v1',
                     ),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? '请输入 Base URL'
-                        : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? '请输入 Base URL' : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
@@ -137,8 +137,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                                 }
                                 setDialogState(() => loadingModels = true);
                                 try {
-                                  final models =
-                                      await AiClient().fetchModels(
+                                  final models = await AiClient().fetchModels(
                                     config: config.copyWith(
                                       name: name.text.trim(),
                                       baseUrl: baseUrl.text.trim(),
@@ -161,14 +160,13 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                                         const ListTile(
                                           title: Text('选择模型',
                                               style: TextStyle(
-                                                  fontWeight:
-                                                      FontWeight.w700)),
+                                                  fontWeight: FontWeight.w700)),
                                         ),
                                         for (final m in models)
                                           ListTile(
                                             title: Text(m),
-                                            onTap: () => Navigator.pop(
-                                                sheetContext, m),
+                                            onTap: () =>
+                                                Navigator.pop(sheetContext, m),
                                           ),
                                       ],
                                     ),
@@ -190,8 +188,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.list_alt),
                       ),
@@ -223,8 +221,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                     title: const Text('支持图片输入（视觉）'),
                     subtitle: const Text('开启后可在对话中发送照片'),
                     value: supportsVision,
-                    onChanged: (v) =>
-                        setDialogState(() => supportsVision = v),
+                    onChanged: (v) => setDialogState(() => supportsVision = v),
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
@@ -288,9 +285,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
   }
 
   Future<void> _addService() async {
-    final available = aiProviderPresets
-        .where((p) => !_keyHints.containsKey(p.id))
-        .toList();
+    final available =
+        aiProviderPresets.where((p) => !_keyHints.containsKey(p.id)).toList();
     final selectedId = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -298,8 +294,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
         shrinkWrap: true,
         children: [
           const ListTile(
-            title: Text('添加 AI 服务',
-                style: TextStyle(fontWeight: FontWeight.w700)),
+            title:
+                Text('添加 AI 服务', style: TextStyle(fontWeight: FontWeight.w700)),
             subtitle: Text('选择厂商后填写 Base URL、模型与 API Key'),
           ),
           const Divider(height: 1),
@@ -417,19 +413,21 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                     value: kind,
                     decoration: const InputDecoration(labelText: '协议'),
                     items: const [
-                      DropdownMenuItem(value: 'openai', child: Text('OpenAI 兼容')),
-                      DropdownMenuItem(value: 'anthropic', child: Text('Anthropic')),
+                      DropdownMenuItem(
+                          value: 'openai', child: Text('OpenAI 兼容')),
+                      DropdownMenuItem(
+                          value: 'anthropic', child: Text('Anthropic')),
                     ],
-                    onChanged: (v) => setDialogState(() => kind = v ?? 'openai'),
+                    onChanged: (v) =>
+                        setDialogState(() => kind = v ?? 'openai'),
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: baseUrl,
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(labelText: 'Base URL'),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? '请输入 Base URL'
-                        : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? '请输入 Base URL' : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
@@ -449,8 +447,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                                 }
                                 setDialogState(() => loadingModels = true);
                                 try {
-                                  final models =
-                                      await AiClient().fetchModels(
+                                  final models = await AiClient().fetchModels(
                                     config: AiProviderConfig(
                                       id: '__draft__',
                                       name: name.text.trim(),
@@ -475,14 +472,13 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                                         const ListTile(
                                           title: Text('选择模型',
                                               style: TextStyle(
-                                                  fontWeight:
-                                                      FontWeight.w700)),
+                                                  fontWeight: FontWeight.w700)),
                                         ),
                                         for (final m in models)
                                           ListTile(
                                             title: Text(m),
-                                            onTap: () => Navigator.pop(
-                                                sheetContext, m),
+                                            onTap: () =>
+                                                Navigator.pop(sheetContext, m),
                                           ),
                                       ],
                                     ),
@@ -504,15 +500,14 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.list_alt),
                       ),
                     ),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? '请输入模型名称'
-                        : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? '请输入模型名称' : null,
                   ),
                   const SizedBox(height: 10),
                   TextFormField(
@@ -537,8 +532,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                     contentPadding: EdgeInsets.zero,
                     title: const Text('支持图片输入（视觉）'),
                     value: supportsVision,
-                    onChanged: (v) =>
-                        setDialogState(() => supportsVision = v),
+                    onChanged: (v) => setDialogState(() => supportsVision = v),
                   ),
                 ],
               ),
@@ -584,9 +578,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showToast(context, message);
   }
 
   @override
@@ -635,7 +627,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                           const Text(
                             '添加服务商并填写 API Key 后，才会出现在这里并可用于对话。',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.black45, fontSize: 12),
+                            style:
+                                TextStyle(color: Colors.black45, fontSize: 12),
                           ),
                           const SizedBox(height: 16),
                           FilledButton.icon(
@@ -691,7 +684,9 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
           backgroundColor:
               selected ? const Color(0xFFD7E8D0) : const Color(0xFFF1E4D8),
           child: Text(
-            config.name.isEmpty ? '?' : config.name.substring(0, 1).toUpperCase(),
+            config.name.isEmpty
+                ? '?'
+                : config.name.substring(0, 1).toUpperCase(),
           ),
         ),
         title: Row(
@@ -744,8 +739,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
           },
           itemBuilder: (context) => [
             if (!selected)
-              const PopupMenuItem(
-                  value: 'default', child: Text('设为当前使用')),
+              const PopupMenuItem(value: 'default', child: Text('设为当前使用')),
             const PopupMenuItem(value: 'edit', child: Text('编辑')),
             const PopupMenuItem(value: 'test', child: Text('测试连接')),
             const PopupMenuItem(value: 'delete', child: Text('删除 Key')),

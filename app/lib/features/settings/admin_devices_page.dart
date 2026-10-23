@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/format_time.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
@@ -39,7 +40,7 @@ class _AdminDevicesPageState extends ConsumerState<AdminDevicesPage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = e.userMessage;
         _loading = false;
       });
     }
@@ -50,8 +51,7 @@ class _AdminDevicesPageState extends ConsumerState<AdminDevicesPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('吊销设备'),
-        content: Text(
-            '吊销「${device.username} · ${device.name}」后，该设备需要重新登录。'),
+        content: Text('吊销「${device.username} · ${device.name}」后，该设备需要重新登录。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -72,8 +72,7 @@ class _AdminDevicesPageState extends ConsumerState<AdminDevicesPage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -115,9 +114,8 @@ class _AdminDevicesPageState extends ConsumerState<AdminDevicesPage> {
                         child: ListTile(
                           leading: Icon(
                             Icons.smartphone_outlined,
-                            color: device.active
-                                ? Colors.black87
-                                : Colors.black26,
+                            color:
+                                device.active ? Colors.black87 : Colors.black26,
                           ),
                           title: Text(
                             '${device.username} · ${device.name.isEmpty ? 'Android' : device.name}',

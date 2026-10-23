@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 import 'pet_avatar.dart';
@@ -101,14 +102,17 @@ class _PetFormPageState extends ConsumerState<PetFormPage> {
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('选择图片失败')));
+      showToast(context, '选择图片失败');
     }
   }
 
   String get _avatarEmoji {
     final species = _isEdit ? widget.pet!.species : _species;
-    return species == 'cat' ? '🐱' : species == 'dog' ? '🐶' : '🐾';
+    return species == 'cat'
+        ? '🐱'
+        : species == 'dog'
+            ? '🐶'
+            : '🐾';
   }
 
   Widget _avatarPreview() {
@@ -178,13 +182,11 @@ class _PetFormPageState extends ConsumerState<PetFormPage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('保存失败，请稍后重试')));
+      showToast(context, '保存失败，请稍后重试');
     }
   }
 
@@ -312,8 +314,8 @@ class _PetFormPageState extends ConsumerState<PetFormPage> {
                     Expanded(
                       child: TextFormField(
                         controller: _weight,
-                        keyboardType:
-                            const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
                         decoration: const InputDecoration(
                           labelText: '体重 (kg)',
                           prefixIcon: Icon(Icons.monitor_weight_outlined),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 import 'record_form_page.dart';
@@ -59,7 +60,7 @@ class _TimelinePageState extends ConsumerState<TimelinePage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = e.userMessage;
         _loading = false;
       });
     } catch (_) {
@@ -82,9 +83,7 @@ class _TimelinePageState extends ConsumerState<TimelinePage> {
     if (!_canEdit) return;
     final userId = ref.read(sessionProvider).user?.id;
     if (!_isOwner && record.createdByUserId != userId) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('共同照护者只能编辑自己新增的记录')),
-      );
+      showToast(context, '共同照护者只能编辑自己新增的记录');
       return;
     }
     final changed = await Navigator.of(context).push<bool>(

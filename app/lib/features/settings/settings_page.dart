@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/format_time.dart';
 import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../ai/ai_settings_page.dart';
+import '../auth/account_switcher.dart';
 import 'admin_devices_page.dart';
+import 'invite_page.dart';
 import 'user_admin_page.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -51,8 +54,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       devices = await ref.read(apiClientProvider).listDevices();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
       return;
     }
     if (!mounted) return;
@@ -99,14 +101,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                     .where((item) => item.id != d.id)
                                     .toList(growable: false);
                               });
-                              ScaffoldMessenger.of(this.context)
-                                  .showSnackBar(
-                                const SnackBar(content: Text('设备已吊销')),
-                              );
+                              showToast(context, '设备已吊销');
                             } on ApiException catch (e) {
                               if (!context.mounted) return;
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(SnackBar(content: Text(e.message)));
+                              showToast(context, e.userMessage, error: true);
                             }
                           },
                         ),
@@ -143,8 +141,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 controller: oldController,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: '当前密码'),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? '请输入当前密码' : null,
+                validator: (v) => (v == null || v.isEmpty) ? '请输入当前密码' : null,
               ),
               const SizedBox(height: 10),
               TextFormField(
@@ -170,8 +167,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 controller: confirmController,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: '确认新密码'),
-                validator: (v) =>
-                    v != newController.text ? '两次输入的密码不一致' : null,
+                validator: (v) => v != newController.text ? '两次输入的密码不一致' : null,
               ),
             ],
           ),
@@ -197,13 +193,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           .read(apiClientProvider)
           .changePassword(oldController.text, newController.text);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('密码已修改，其他设备已下线')),
-      );
+      showToast(context, '密码已修改，其他设备已下线');
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     } finally {
       oldController.dispose();
       newController.dispose();
@@ -221,15 +214,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     await _signOut();
   }
 
-  Future<void> _switchAccount() async {
-    final ok = await _confirm(
-      context,
-      '切换账号',
-      '将退出当前账号并回到登录页，可使用本机已保存的账号一键登录。',
-    );
-    if (!ok || !mounted) return;
-    await _signOut();
-  }
+  Future<void> _switchAccount() => showAccountSwitcher(context, ref);
 
   Future<void> _signOut() async {
     final navigator = Navigator.of(context);
@@ -364,7 +349,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ListTile(
                   leading: const Icon(Icons.switch_account_outlined),
                   title: const Text('切换账号'),
-                  subtitle: const Text('退出当前账号，使用已保存的账号登录'),
+                  subtitle: const Text('直接切换到已保存的其他账号'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _switchAccount,
                 ),
@@ -395,6 +380,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const UserAdminPage()),
+                    ),
+                  ),
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  ListTile(
+                    leading: const Icon(Icons.confirmation_number_outlined),
+                    title: const Text('邀请码'),
+                    subtitle: const Text('生成邀请码，邀请家人或朋友加入'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const InvitePage()),
                     ),
                   ),
                   const Divider(height: 1, indent: 16, endIndent: 16),

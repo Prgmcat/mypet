@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -106,8 +107,7 @@ class _OcrPageState extends ConsumerState<OcrPage> {
       _recognizing = true;
       _error = null;
     });
-    final recognizer =
-        TextRecognizer(script: TextRecognitionScript.chinese);
+    final recognizer = TextRecognizer(script: TextRecognitionScript.chinese);
     try {
       final input = InputImage.fromFilePath(image.path);
       final result = await recognizer.processImage(input);
@@ -139,9 +139,8 @@ class _OcrPageState extends ConsumerState<OcrPage> {
         .toList();
     if (_hospital.text.isEmpty) {
       for (final line in lines) {
-        final looksLikeClinic = line.contains('医院') ||
-            line.contains('诊所') ||
-            line.contains('宠物');
+        final looksLikeClinic =
+            line.contains('医院') || line.contains('诊所') || line.contains('宠物');
         if (looksLikeClinic && line.length <= 40) {
           _hospital.text = line.length > 40 ? line.substring(0, 40) : line;
           break;
@@ -182,15 +181,15 @@ class _OcrPageState extends ConsumerState<OcrPage> {
       if (name.isEmpty || name.length > 24 || seen.contains(name)) continue;
       if (!RegExp(r'[一-龥A-Za-z]').hasMatch(name)) continue;
       final rest = line.substring(valueMatch.end).trim();
-      final unit =
-          RegExp(r'^([a-zA-Z%/μ]+)').firstMatch(rest)?.group(1) ?? '';
+      final unit = RegExp(r'^([a-zA-Z%/μ]+)').firstMatch(rest)?.group(1) ?? '';
       final refMatch =
           RegExp(r'(\d+(?:\.\d+)?)\s*[-~—]\s*(\d+(?:\.\d+)?)').firstMatch(line);
       seen.add(name);
       out.add(_IndicatorDraft(
         name: name,
         value: '${valueMatch.group(0)}${unit.isEmpty ? '' : ' $unit'}',
-        reference: refMatch == null ? '' : '${refMatch.group(1)}-${refMatch.group(2)}',
+        reference:
+            refMatch == null ? '' : '${refMatch.group(1)}-${refMatch.group(2)}',
       ));
     }
     return out;
@@ -237,14 +236,12 @@ class _OcrPageState extends ConsumerState<OcrPage> {
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('化验单已写入体检记录')),
-      );
+      showToast(context, '化验单已写入体检记录');
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = e.message;
+        _error = e.userMessage;
       });
     } catch (_) {
       if (!mounted) return;
@@ -319,9 +316,7 @@ class _OcrPageState extends ConsumerState<OcrPage> {
                 alignment: Alignment.topRight,
                 children: [
                   Image.file(File(_image!.path),
-                      height: 220,
-                      width: double.infinity,
-                      fit: BoxFit.cover),
+                      height: 220, width: double.infinity, fit: BoxFit.cover),
                   if (_recognizing)
                     const Positioned.fill(
                       child: ColoredBox(
@@ -352,13 +347,13 @@ class _OcrPageState extends ConsumerState<OcrPage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(_error!,
-                  style: const TextStyle(color: Color(0xFF9B2C2C), fontSize: 13)),
+                  style:
+                      const TextStyle(color: Color(0xFF9B2C2C), fontSize: 13)),
             ),
           if (_recognizing)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('正在本机识别文字…',
-                  style: TextStyle(color: Colors.black54)),
+              child: Text('正在本机识别文字…', style: TextStyle(color: Colors.black54)),
             ),
           if (_rawText.isNotEmpty) ...[
             Card(
@@ -411,8 +406,8 @@ class _OcrPageState extends ConsumerState<OcrPage> {
                             style: TextStyle(fontWeight: FontWeight.w700)),
                         const Spacer(),
                         TextButton.icon(
-                          onPressed: () => setState(() => _indicators
-                              .add(_IndicatorDraft())),
+                          onPressed: () => setState(
+                              () => _indicators.add(_IndicatorDraft())),
                           icon: const Icon(Icons.add, size: 18),
                           label: const Text('添加'),
                         ),
@@ -526,7 +521,8 @@ class _IndicatorRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
       decoration: BoxDecoration(
-        color: draft.abnormal ? const Color(0xFFFDF0DC) : const Color(0xFFF9F6F2),
+        color:
+            draft.abnormal ? const Color(0xFFFDF0DC) : const Color(0xFFF9F6F2),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(

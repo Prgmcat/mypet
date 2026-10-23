@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -47,7 +48,7 @@ class _WeightPageState extends ConsumerState<WeightPage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = e.userMessage;
         _loading = false;
       });
     }
@@ -118,8 +119,7 @@ class _WeightPageState extends ConsumerState<WeightPage> {
     note.dispose();
     if (kg == null || kg <= 0 || kg > 120) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('请输入有效体重')));
+      showToast(context, '请输入有效体重');
       return;
     }
     try {
@@ -132,8 +132,7 @@ class _WeightPageState extends ConsumerState<WeightPage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 

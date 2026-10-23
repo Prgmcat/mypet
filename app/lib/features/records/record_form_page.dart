@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -118,10 +119,25 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
 
   String _payloadKey(int index) {
     return switch (_type) {
-      'vaccine' => const ['vaccineName', 'batchNo', 'validUntil', 'clinicNote'][index],
+      'vaccine' => const [
+          'vaccineName',
+          'batchNo',
+          'validUntil',
+          'clinicNote'
+        ][index],
       'deworming' => const ['product', 'dose', 'weightKg', 'method'][index],
-      'checkup' => const ['weightKg', 'temperature', 'conclusion', 'advice'][index],
-      'medical' => const ['symptoms', 'diagnosis', 'prescription', 'advice'][index],
+      'checkup' => const [
+          'weightKg',
+          'temperature',
+          'conclusion',
+          'advice'
+        ][index],
+      'medical' => const [
+          'symptoms',
+          'diagnosis',
+          'prescription',
+          'advice'
+        ][index],
       'medication' => const ['product', 'dose', 'frequency', 'period'][index],
       'grooming' => const ['item', 'store', 'note', 'extra'][index],
       'diet' => const ['product', 'category', 'amount', 'feedback'][index],
@@ -198,28 +214,25 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
       var failedUploads = 0;
       for (final image in _pending) {
         try {
-          await api.uploadAttachment(widget.pet.id, image.path, recordId: record.id);
+          await api.uploadAttachment(widget.pet.id, image.path,
+              recordId: record.id);
         } catch (_) {
           failedUploads++;
         }
       }
       if (!mounted) return;
       if (failedUploads > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('记录已保存，$failedUploads 张照片上传失败')),
-        );
+        showToast(context, '记录已保存，$failedUploads 张照片上传失败');
       }
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('保存失败，请稍后重试')));
+      showToast(context, '保存失败，请稍后重试');
     }
   }
 
@@ -265,9 +278,8 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(attachment.originalName.isEmpty
-            ? '附件'
-            : attachment.originalName),
+        title: Text(
+            attachment.originalName.isEmpty ? '附件' : attachment.originalName),
         content: Text(
           '类型：${attachment.mime}\n大小：${(attachment.size / 1024).toStringAsFixed(0)} KB\n\n'
           'PDF 附件需要在电脑浏览器打开；App 内查看 PDF 将在后续版本支持。',
@@ -308,8 +320,7 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -368,7 +379,8 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
                             labelText: '发生日期',
                             prefixIcon: Icon(Icons.event_outlined),
                           ),
-                          child: Text(DateFormat('yyyy-MM-dd').format(_occurredAt)),
+                          child: Text(
+                              DateFormat('yyyy-MM-dd').format(_occurredAt)),
                         ),
                       ),
                     ),
@@ -441,7 +453,8 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                if (widget.record != null && widget.record!.attachments.isNotEmpty) ...[
+                if (widget.record != null &&
+                    widget.record!.attachments.isNotEmpty) ...[
                   Text('已有附件', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 6),
                   Wrap(
@@ -456,7 +469,9 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
                                 size: 18,
                               ),
                               label: Text(
-                                a.originalName.isEmpty ? a.mime : a.originalName,
+                                a.originalName.isEmpty
+                                    ? a.mime
+                                    : a.originalName,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               onPressed: () => _openAttachment(a),
@@ -468,16 +483,16 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
                 OutlinedButton.icon(
                   onPressed: _saving ? null : _pickImages,
                   icon: const Icon(Icons.add_photo_alternate_outlined),
-                  label: Text(_pending.isEmpty
-                      ? '添加照片'
-                      : '已选择 ${_pending.length} 张照片'),
+                  label: Text(
+                      _pending.isEmpty ? '添加照片' : '已选择 ${_pending.length} 张照片'),
                 ),
                 if (_pending.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       _pending.map((e) => e.name).join('、'),
-                      style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      style:
+                          const TextStyle(color: Colors.black54, fontSize: 12),
                     ),
                   ),
                 const SizedBox(height: 24),

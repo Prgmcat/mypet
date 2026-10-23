@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../core/ai/ai_capture.dart';
+import '../../core/toast.dart';
 import '../../core/ai/ai_client.dart';
 import '../../core/ai/ai_config.dart';
 import '../../core/ai/ai_safety.dart';
@@ -314,8 +315,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         AiMessage(
           role: recent[i].role,
           content: recent[i].content,
-          imagePaths:
-              i == lastUserIndex ? recent[i].images : const <String>[],
+          imagePaths: i == lastUserIndex ? recent[i].images : const <String>[],
         ),
     ];
     final buffer = StringBuffer();
@@ -323,8 +323,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
     // Capture facts from the user's own words. Local rules are deterministic
     // and free; the model is only asked when local rules found nothing.
-    final capturePets =
-        _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
+    final capturePets = _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
     final localCaptures =
         isRetry ? <CaptureEvent>[] : parseLocalCaptures(text, capturePets);
     Future<List<CaptureEvent>>? fallbackCaptures;
@@ -715,8 +714,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             const Divider(height: 1),
             if (sessions.isEmpty)
               const ListTile(enabled: false, title: Text('还没有历史会话')),
-            for (final session in sessions.where(
-                (s) => _isGlobal || s.petId == _pet?.id))
+            for (final session
+                in sessions.where((s) => _isGlobal || s.petId == _pet?.id))
               ListTile(
                 leading: const Icon(Icons.chat_bubble_outline),
                 title: Text(session.title, maxLines: 1),
@@ -965,9 +964,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showToast(context, message);
   }
 
   @override
@@ -1054,7 +1051,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                         ListTile(
                           leading: Text(p.species == 'cat' ? '🐱' : '🐶'),
                           title: Text(p.name),
-                          subtitle: Text(p.breed.isEmpty ? p.speciesLabel : p.breed),
+                          subtitle:
+                              Text(p.breed.isEmpty ? p.speciesLabel : p.breed),
                           onTap: () => Navigator.pop(context, p),
                         ),
                     ],
@@ -1137,12 +1135,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     controller: _scroll,
                     padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                     children: [
-                      for (final message in _session.messages)
-                        _bubble(message),
-                      if (_streamingText.isNotEmpty)
-                        _streamingBubble(),
-                      if (_error != null)
-                        _errorBanner(),
+                      for (final message in _session.messages) _bubble(message),
+                      if (_streamingText.isNotEmpty) _streamingBubble(),
+                      if (_error != null) _errorBanner(),
                     ],
                   ),
           ),
@@ -1252,8 +1247,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                       shape: BoxShape.circle,
                     ),
                     padding: const EdgeInsets.all(2),
-                    child: const Icon(Icons.close,
-                        size: 14, color: Colors.white),
+                    child:
+                        const Icon(Icons.close, size: 14, color: Colors.white),
                   ),
                 ),
               ),
@@ -1296,8 +1291,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                   child: Text(pet.name),
                 ),
               TextButton(
-                onPressed: () =>
-                    setState(() => _pendingCaptures = const []),
+                onPressed: () => setState(() => _pendingCaptures = const []),
                 child: const Text('忽略'),
               ),
             ],
@@ -1343,7 +1337,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               : '回答会结合宠物档案（年龄、品种、疫苗、体重、病史）。\n'
                   '你陈述的体重、症状、换粮也会自动记录。',
           textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
+          style:
+              const TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
         ),
         const SizedBox(height: 20),
         for (final prompt in prompts)
@@ -1483,8 +1478,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                   ),
                 if (message.content.isNotEmpty)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: isUser ? const Color(0xFF8B5E3C) : Colors.white,
                       borderRadius: BorderRadius.circular(14),
@@ -1508,8 +1503,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                             style:
                                 TextStyle(fontSize: 10, color: Colors.black38)),
                         const SizedBox(width: 8),
-                        _iconAction(Icons.copy, '复制',
-                            () => _copy(message.content)),
+                        _iconAction(
+                            Icons.copy, '复制', () => _copy(message.content)),
                         _iconAction(
                           message.feedback == 1
                               ? Icons.thumb_up
@@ -1579,8 +1574,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         children: [
           Expanded(
             child: Text(_error!,
-                style:
-                    const TextStyle(color: Color(0xFF9B2C2C), fontSize: 13)),
+                style: const TextStyle(color: Color(0xFF9B2C2C), fontSize: 13)),
           ),
           TextButton(onPressed: _retry, child: const Text('重试')),
           TextButton(

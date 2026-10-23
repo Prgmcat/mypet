@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -56,7 +57,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = e.userMessage;
         _loading = false;
       });
     } catch (_) {
@@ -118,14 +119,11 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
     try {
       await ref.read(apiClientProvider).addMember(widget.pet.id, name, role);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已邀请，对方登录后即可看到共享宠物')),
-      );
+      showToast(context, '已邀请，对方登录后即可看到共享宠物');
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -157,8 +155,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -229,9 +226,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
     if (ok != true) return;
     if (usePasscode && !RegExp(r'^[0-9]{4}$').hasMatch(code)) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('口令需为 4 位数字')),
-      );
+      showToast(context, '口令需为 4 位数字');
       return;
     }
     try {
@@ -256,8 +251,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
                 children: [
                   const Text('链接只显示这一次，请复制后发给家人。'),
                   const SizedBox(height: 12),
-                  SelectableText(url,
-                      style: const TextStyle(fontSize: 13)),
+                  SelectableText(url, style: const TextStyle(fontSize: 13)),
                   const SizedBox(height: 10),
                   Text(
                     '权限：${grant.roleLabel} · 有效期至 ${_formatTime(grant.expiresAt)}'
@@ -273,9 +267,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: url));
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('链接已复制')),
-                );
+                showToast(context, '链接已复制');
               },
               child: const Text('复制链接'),
             ),
@@ -289,8 +281,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -320,8 +311,7 @@ class _PetSharePageState extends ConsumerState<PetSharePage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 

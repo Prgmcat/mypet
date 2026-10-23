@@ -109,11 +109,10 @@ class SessionController extends StateNotifier<SessionState> {
     required String username,
     required String password,
   }) async {
-    state = state.copyWith(
-      loading: true,
-      clearError: true,
-      serverUrl: defaultServerUrl,
-    );
+    // Do not flip `loading` here: the root route would swap the login page for
+    // the splash screen and the failure message would never be seen. The login
+    // page owns its own progress indicator.
+    state = state.copyWith(clearError: true, serverUrl: defaultServerUrl);
     try {
       final result = await _api.login(
         baseUrl: defaultServerUrl,
@@ -134,10 +133,75 @@ class SessionController extends StateNotifier<SessionState> {
         user: result.user,
       );
     } on ApiException catch (e) {
-      state = state.copyWith(loading: false, error: e.message, errorCode: e.code);
+      state = state.copyWith(
+        loading: false,
+        error: e.userMessage,
+        errorCode: e.code,
+      );
     } catch (_) {
       state = state.copyWith(loading: false, error: '登录失败，请稍后重试');
     }
+  }
+
+  /// Switches to another account without showing the login page.
+  ///
+  /// The new credentials are validated first, so a typo neither logs the user
+  /// out nor leaves them without a working token. Returns null on success or a
+  /// localized error message.
+  Future<String?> switchAccount({
+    required String username,
+    required String password,
+  }) async {
+    final previousUser = state.user;
+    final previousToken = state.token;
+    LoginResult result;
+    try {
+      result = await _api.login(
+        baseUrl: defaultServerUrl,
+        username: username,
+        password: password,
+        deviceName: await _deviceName(),
+      );
+    } on ApiException catch (e) {
+      return e.userMessage;
+    } catch (_) {
+      return '切换失败，请检查网络后重试';
+    }
+    if (previousToken != null) {
+      // The shared client now carries the new token, so revoke the previous
+      // device through a short-lived client of its own.
+      try {
+        final oldApi = ApiClient()
+          ..configure(baseUrl: defaultServerUrl, token: previousToken);
+        await oldApi.logout().timeout(const Duration(seconds: 3));
+      } catch (_) {
+        // A stale device entry is better than failing the switch.
+      }
+    }
+    try {
+      await _secure.write(key: _tokenKey, value: result.token);
+    } catch (_) {
+      // The in-memory session still works for this run.
+    }
+    await AccountStore.remember(
+      username: username,
+      password: password,
+      displayName: result.user.displayName,
+    );
+    if (previousUser != null && previousUser.id != result.user.id) {
+      try {
+        await LocalCache.clear(previousUser.id);
+      } catch (_) {
+        // Cache cleanup is best effort.
+      }
+    }
+    state = SessionState(
+      loading: false,
+      serverUrl: defaultServerUrl,
+      token: result.token,
+      user: result.user,
+    );
+    return null;
   }
 
   Future<String?> register({
@@ -157,7 +221,7 @@ class SessionController extends StateNotifier<SessionState> {
       await login(username: username, password: password);
       return null;
     } on ApiException catch (e) {
-      return e.message;
+      return e.userMessage;
     } catch (_) {
       return '注册失败，请稍后重试';
     }
@@ -211,10 +275,11 @@ class SessionController extends StateNotifier<SessionState> {
 
   Future<String?> createInvite({int maxUses = 1, int ttlHours = 168}) async {
     try {
-      final data = await _api.createInvite(maxUses: maxUses, ttlHours: ttlHours);
+      final data =
+          await _api.createInvite(maxUses: maxUses, ttlHours: ttlHours);
       return data['code'] as String?;
     } on ApiException catch (e) {
-      return 'ERR:${e.message}';
+      return 'ERR:${e.userMessage}';
     } catch (_) {
       return 'ERR:创建邀请码失败';
     }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/session.dart';
+import '../../core/toast.dart';
 
 class RegisterPage extends ConsumerStatefulWidget {
   const RegisterPage({super.key});
@@ -40,8 +41,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     if (!mounted) return;
     setState(() => _loading = false);
     if (error != null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error)));
+      showToast(context, error, error: true);
       return;
     }
     Navigator.of(context).popUntil((route) => route.isFirst);

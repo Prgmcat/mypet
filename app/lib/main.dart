@@ -62,7 +62,9 @@ class _RootPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
     if (session.loading) return const _SplashPage();
-    return session.isLoggedIn ? const HomePage() : const LoginPage();
+    if (!session.isLoggedIn) return const LoginPage();
+    // Recreate the home state when the account switches in place.
+    return HomePage(key: ValueKey(session.user!.id));
   }
 }
 

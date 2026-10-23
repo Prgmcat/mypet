@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -39,7 +40,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
+        _error = e.userMessage;
         _loading = false;
       });
     }
@@ -74,8 +75,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -109,9 +109,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: code));
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制重置码')),
-                );
+                showToast(context, '已复制重置码');
               },
               child: const Text('复制'),
             ),
@@ -124,8 +122,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -156,7 +153,8 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
               if (expires.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text('有效期至 $expires',
-                    style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                    style:
+                        const TextStyle(color: Colors.black54, fontSize: 12)),
               ],
             ],
           ),
@@ -165,9 +163,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: code));
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制邀请码')),
-                );
+                showToast(context, '已复制邀请码');
               },
               child: const Text('复制'),
             ),
@@ -180,8 +176,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -239,9 +234,8 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
                                       setDialogState(() {});
                                     } on ApiException catch (e) {
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(SnackBar(
-                                              content: Text(e.message)));
+                                      showToast(context, e.userMessage,
+                                          error: true);
                                     }
                                   },
                                   child: const Text('作废'),
@@ -262,8 +256,7 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -312,10 +305,9 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
                       return Card(
                         child: ListTile(
                           leading: CircleAvatar(
-                            backgroundColor:
-                                user.isAdmin
-                                    ? const Color(0xFFE8F0E4)
-                                    : const Color(0xFFF1E4D8),
+                            backgroundColor: user.isAdmin
+                                ? const Color(0xFFE8F0E4)
+                                : const Color(0xFFF1E4D8),
                             child: Icon(
                               user.isAdmin
                                   ? Icons.shield_outlined
@@ -351,7 +343,8 @@ class _UserAdminPageState extends ConsumerState<UserAdminPage> {
                               if (user.id != selfId)
                                 IconButton(
                                   tooltip: '重置密码',
-                                  icon: const Icon(Icons.key_outlined, size: 20),
+                                  icon:
+                                      const Icon(Icons.key_outlined, size: 20),
                                   onPressed: () => _resetCode(user),
                                 ),
                               if (user.id != selfId && !user.isAdmin)

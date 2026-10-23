@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
@@ -64,7 +65,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
         await LocalCache.saveWeights(userId, _pet.id, weights);
       }
     } on ApiException catch (e) {
-      await _loadCachedDetails(e.message);
+      await _loadCachedDetails(e.userMessage);
     } catch (_) {
       await _loadCachedDetails('记录加载失败');
     }
@@ -189,9 +190,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: url));
                             Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('链接已复制')),
-                            );
+                            showToast(context, '链接已复制');
                           },
                           child: const Text('复制链接'),
                         ),
@@ -213,8 +212,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       );
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -262,8 +260,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _deleting = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -354,8 +351,8 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('电子身份证',
-                            style: TextStyle(
-                                color: Colors.white70, fontSize: 12)),
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 12)),
                         const SizedBox(height: 8),
                         Text(
                           _pet.identityNo,
@@ -393,7 +390,9 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
           Card(
             child: Column(
               children: [
-                _InfoRow(label: '生日', value: _pet.birthday.isEmpty ? '未填写' : _pet.birthday),
+                _InfoRow(
+                    label: '生日',
+                    value: _pet.birthday.isEmpty ? '未填写' : _pet.birthday),
                 _InfoRow(
                   label: '体重',
                   value: _pet.currentWeightKg > 0
@@ -458,8 +457,8 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         '离线：显示最近缓存记录',
-                        style: TextStyle(
-                            fontSize: 12, color: Color(0xFF8A4B08)),
+                        style:
+                            TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
                       ),
                     ),
                   )
@@ -547,7 +546,8 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         '共 ${_weights.length} 次记录，点击查看体重曲线。',
-                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                        style: const TextStyle(
+                            color: Colors.black54, fontSize: 12),
                       ),
                     ),
                   ),
@@ -595,8 +595,8 @@ class _InfoRow extends StatelessWidget {
             children: [
               SizedBox(
                 width: 76,
-                child: Text(label,
-                    style: const TextStyle(color: Colors.black54)),
+                child:
+                    Text(label, style: const TextStyle(color: Colors.black54)),
               ),
               Expanded(child: Text(value)),
             ],

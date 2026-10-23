@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/accounts.dart';
 import '../../core/session.dart';
+import '../../core/toast.dart';
 import 'register_page.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -50,9 +51,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _loading = false);
     final error = ref.read(sessionProvider).error;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      showToast(context, error, error: true);
     }
   }
 
@@ -77,14 +76,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       await AccountStore.remove(account.username);
       await _loadAccounts();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('账号密码已变更，请手动输入密码登录')),
-      );
+      showToast(context, '账号密码已变更，请手动输入密码登录', error: true);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error)),
-    );
+    showToast(context, error, error: true);
   }
 
   Future<void> _removeAccount(SavedAccount account) async {
@@ -125,7 +120,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text('🐾', textAlign: TextAlign.center,
+                    const Text('🐾',
+                        textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 56)),
                     const SizedBox(height: 12),
                     Text('喵了个咪',
@@ -133,7 +129,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         style: theme.textTheme.headlineMedium
                             ?.copyWith(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 6),
-                    Text('自己的服务器，自己的宠物档案',
+                    Text('记录健康与成长，陪伴毛孩子每一天',
                         textAlign: TextAlign.center,
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(color: Colors.black54)),
@@ -194,8 +190,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           icon: Icon(_obscure
                               ? Icons.visibility_outlined
                               : Icons.visibility_off_outlined),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
+                          onPressed: () => setState(() => _obscure = !_obscure),
                         ),
                       ),
                       validator: (v) =>
@@ -256,10 +251,10 @@ class _SavedAccountTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final label =
-        account.displayName.trim().isEmpty ? account.username : account.displayName;
-    final initial =
-        label.isEmpty ? '?' : label.substring(0, 1).toUpperCase();
+    final label = account.displayName.trim().isEmpty
+        ? account.username
+        : account.displayName;
+    final initial = label.isEmpty ? '?' : label.substring(0, 1).toUpperCase();
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/notifications.dart';
@@ -55,7 +56,7 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
         _statuses.map((status) => api.listReminders(status: status)),
       );
     } on ApiException catch (e) {
-      await _loadCached(e.message);
+      await _loadCached(e.userMessage);
       return;
     } catch (e) {
       debugPrint('reminders load failed: $e');
@@ -121,7 +122,8 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('跳过这次提醒'),
-          content: Text('将跳过「${reminder.petName} · ${reminder.typeLabel}」的本次提醒，周期设置保留。'),
+          content: Text(
+              '将跳过「${reminder.petName} · ${reminder.typeLabel}」的本次提醒，周期设置保留。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -148,13 +150,11 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
         'snooze' => '已稍后提醒（24 小时）',
         _ => '已跳过本次提醒',
       };
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      showToast(context, message);
       await _load();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
+      showToast(context, e.userMessage, error: true);
     }
   }
 
@@ -192,8 +192,8 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
                         color: const Color(0xFFFDF0DC),
                         child: const Text(
                           '离线：显示最近缓存的提醒',
-                          style: TextStyle(
-                              fontSize: 12, color: Color(0xFF8A4B08)),
+                          style:
+                              TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
                         ),
                       ),
                     Expanded(
@@ -278,8 +278,8 @@ class _ReminderList extends StatelessWidget {
                     children: [
                       CircleAvatar(
                         backgroundColor: const Color(0xFFF1E4D8),
-                        child: Text(r.emoji,
-                            style: const TextStyle(fontSize: 18)),
+                        child:
+                            Text(r.emoji, style: const TextStyle(fontSize: 18)),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -288,7 +288,8 @@ class _ReminderList extends StatelessWidget {
                           children: [
                             Text(
                               '${r.petName} · ${r.typeLabel}',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -296,7 +297,9 @@ class _ReminderList extends StatelessWidget {
                               '${r.status == 'snoozed' ? ' · 已稍后' : ''}',
                               style: TextStyle(
                                 fontSize: 13,
-                                color: overdue ? Colors.red.shade400 : Colors.black54,
+                                color: overdue
+                                    ? Colors.red.shade400
+                                    : Colors.black54,
                               ),
                             ),
                           ],

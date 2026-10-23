@@ -62,12 +62,13 @@ class NotificationService {
     final now = DateTime.now();
     var scheduled = 0;
     for (final reminder in reminders) {
-      if (reminder.status != 'pending' && reminder.status != 'snoozed') continue;
+      if (reminder.status != 'pending' && reminder.status != 'snoozed') {
+        continue;
+      }
       final due = DateTime.tryParse(reminder.dueAt);
       if (due == null) continue;
-      final offsets = reminder.advanceOffsets.isEmpty
-          ? const [0]
-          : reminder.advanceOffsets;
+      final offsets =
+          reminder.advanceOffsets.isEmpty ? const [0] : reminder.advanceOffsets;
       for (final offset in offsets) {
         if (scheduled >= 64) return;
         final day = due.subtract(Duration(days: offset));

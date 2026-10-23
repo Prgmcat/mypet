@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../ai/ai_chat_page.dart';
+import '../auth/account_switcher.dart';
 import '../pets/pet_avatar.dart';
 import '../pets/pet_detail_page.dart';
 import '../pets/pet_form_page.dart';
@@ -51,7 +53,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       if (userId != null) await LocalCache.savePets(userId, pets);
       await _loadReminders();
     } on ApiException catch (e) {
-      await _loadCachedOrError(e.message);
+      await _loadCachedOrError(e.userMessage);
     } catch (_) {
       await _loadCachedOrError('加载失败，请检查服务器连接');
     }
@@ -128,9 +130,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _openAi() async {
     final pets = _pets ?? const <Pet>[];
     if (pets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('先添加一只宠物，再使用 AI 助手')),
-      );
+      showToast(context, '先添加一只宠物，再使用 AI 助手');
       return;
     }
     final pet = pets.length == 1
@@ -181,8 +181,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       height: 46,
       child: Row(
         children: [
-          Icon(icon,
-              size: 20, color: danger ? Colors.red : Colors.black54),
+          Icon(icon, size: 20, color: danger ? Colors.red : Colors.black54),
           const SizedBox(width: 12),
           Text(
             label,
@@ -217,26 +216,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (ok == true) await _signOut();
   }
 
-  Future<void> _switchAccount() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('切换账号'),
-        content: const Text('将退出当前账号并回到登录页，可使用本机已保存的账号一键登录。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('切换'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) await _signOut();
-  }
+  Future<void> _switchAccount() => showAccountSwitcher(context, ref);
 
   Future<void> _signOut() async {
     try {
@@ -254,8 +234,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     final user = session.user;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('喵了个咪',
-            style: TextStyle(fontWeight: FontWeight.w700)),
+        title:
+            const Text('喵了个咪', style: TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
             tooltip: '照护提醒',
