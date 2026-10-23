@@ -19,8 +19,10 @@ import '../../core/api_client.dart';
 import '../../core/chat_images.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
+import '../pets/pet_form_page.dart';
 import '../records/record_form_page.dart';
 import 'ai_settings_page.dart';
+import 'assistant_drawer.dart';
 
 class AiChatPage extends ConsumerStatefulWidget {
   const AiChatPage({
@@ -215,6 +217,51 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     } catch (_) {
       // Ignore.
     }
+  }
+
+  void _startNewChat() {
+    _cancelToken?.cancel();
+    setState(() {
+      _session = _newSession(_isGlobal ? null : _pet);
+      _pendingCaptures = const [];
+      _pendingImages.clear();
+      _streamingText = '';
+      _error = null;
+      _showRedCard = false;
+      _sending = false;
+    });
+    _input.clear();
+    _reloadContext();
+  }
+
+  Future<void> _openSession(AiSession session) async {
+    Pet? matched;
+    for (final pet in _pets) {
+      if (pet.id == session.petId) matched = pet;
+    }
+    setState(() {
+      _session = session;
+      _pet = matched;
+      _pendingCaptures = const [];
+      _streamingText = '';
+      _error = null;
+    });
+    await _reloadContext();
+    if (mounted) setState(() {});
+    _scrollToBottom();
+  }
+
+  Future<void> _addPet() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PetFormPage()),
+    );
+    try {
+      _pets = await ref.read(apiClientProvider).listPets();
+    } catch (_) {
+      // Keep the previous list when the refresh fails.
+    }
+    await _reloadContext();
+    if (mounted) setState(() {});
   }
 
   void _scrollToBottom() {
@@ -970,21 +1017,40 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      drawer: _isGlobal
+          ? AssistantDrawer(
+              currentSessionId: _session.id,
+              onNewChat: _startNewChat,
+              onOpenSession: _openSession,
+            )
+          : null,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _isGlobal ? 'AI 助手' : 'AI 助手 · ${_pet?.name ?? ''}',
-              style: const TextStyle(fontSize: 16),
-            ),
-            Text(
-              _isGlobal ? '直接说，我会顺手帮你记录' : '当前宠物：${_pet?.name ?? ''}',
-              style: const TextStyle(fontSize: 11, color: Colors.black54),
-            ),
-          ],
-        ),
+        centerTitle: _isGlobal,
+        title: _isGlobal
+            ? const Text(
+                '喵了个咪 AI',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI 助手 · ${_pet?.name ?? ''}',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  Text(
+                    '当前宠物：${_pet?.name ?? ''}',
+                    style: const TextStyle(fontSize: 11, color: Colors.black54),
+                  ),
+                ],
+              ),
         actions: [
+          if (_isGlobal)
+            IconButton(
+              tooltip: '新对话',
+              icon: const Icon(Icons.add_comment_outlined),
+              onPressed: _startNewChat,
+            ),
           PopupMenuButton<String>(
             tooltip: '切换模型服务商',
             icon: const Icon(Icons.memory),
@@ -1061,16 +1127,18 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 if (pet != null) await _switchPet(pet);
               },
             ),
-          IconButton(
-            tooltip: '历史会话',
-            icon: const Icon(Icons.history),
-            onPressed: _showHistory,
-          ),
-          IconButton(
-            tooltip: 'AI 设置',
-            icon: const Icon(Icons.tune),
-            onPressed: _openSettings,
-          ),
+          if (!_isGlobal)
+            IconButton(
+              tooltip: '历史会话',
+              icon: const Icon(Icons.history),
+              onPressed: _showHistory,
+            ),
+          if (!_isGlobal)
+            IconButton(
+              tooltip: 'AI 设置',
+              icon: const Icon(Icons.tune),
+              onPressed: _openSettings,
+            ),
         ],
       ),
       body: Column(
@@ -1155,48 +1223,70 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    onPressed: _pickingImages ? null : _pickImages,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    tooltip: '发送图片',
-                  ),
-                  IconButton(
-                    onPressed: _toggleVoice,
-                    icon: Icon(_listening ? Icons.mic : Icons.mic_none),
-                    color: _listening ? Colors.red : null,
-                    tooltip: _listening ? '停止语音' : '语音输入',
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.newline,
-                      decoration: const InputDecoration(
-                        hintText: '描述症状或照护问题…',
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: const Color(0xFFE9E1D7)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0F000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _pickingImages ? null : _pickImages,
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      tooltip: '发送图片',
+                    ),
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.newline,
+                        decoration: const InputDecoration(
+                          hintText: '发消息或按住说话…',
+                          border: InputBorder.none,
+                          filled: false,
+                          isDense: true,
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (_sending)
-                    IconButton.filled(
-                      onPressed: _stop,
-                      icon: const Icon(Icons.stop),
-                      tooltip: '停止生成',
-                    )
-                  else
-                    IconButton.filled(
-                      onPressed: () => _send(),
-                      icon: const Icon(Icons.arrow_upward),
-                      tooltip: '发送',
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _toggleVoice,
+                      icon: Icon(_listening ? Icons.mic : Icons.mic_none),
+                      color: _listening ? Colors.red : null,
+                      tooltip: _listening ? '停止语音' : '语音输入',
                     ),
-                ],
+                    const SizedBox(width: 2),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: _sending
+                          ? IconButton.filled(
+                              onPressed: _stop,
+                              icon: const Icon(Icons.stop),
+                              tooltip: '停止生成',
+                            )
+                          : IconButton.filled(
+                              onPressed: () => _send(),
+                              icon: const Icon(Icons.arrow_upward),
+                              tooltip: '发送',
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1302,11 +1392,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Widget _emptyState() {
+    final userName = ref.read(sessionProvider).user?.displayName ?? '';
     final prompts = _isGlobal
         ? const [
             '咪咪今天拉稀了',
             '咪咪 5.2 公斤了',
-            '今天给咪咪换了新猫粮，看看这个配方',
+            '今天换了新猫粮，帮我看看配方',
+            '下次驱虫是什么时候？',
           ]
         : const [
             '最近食欲下降，需要观察什么？',
@@ -1314,44 +1406,78 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             '带它出门需要注意什么？',
           ];
     return ListView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
       children: [
-        const SizedBox(height: 24),
-        const Text(
-          '🐾',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 48),
-        ),
-        const SizedBox(height: 12),
         Text(
-          _isGlobal ? '直接说，我帮你记' : '咨询「${_pet?.name ?? ''}」的照护问题',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          _isGlobal
+              ? (userName.isEmpty ? '你好' : '你好，$userName')
+              : '咨询「${_pet?.name ?? ''}」',
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 8),
         Text(
           _isGlobal
-              ? '回答会结合账号下所有宠物的档案。\n'
-                  '你陈述的体重、症状、换粮会自动写进对应宠物的记录，'
-                  '并可以在卡片上撤销。'
+              ? '我是你的宠物助手。可以聊喂养和健康，也可以直接说一句，'
+                  '我会顺手记进宠物档案。'
               : '回答会结合宠物档案（年龄、品种、疫苗、体重、病史）。\n'
                   '你陈述的体重、症状、换粮也会自动记录。',
-          textAlign: TextAlign.center,
           style:
               const TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
         ),
-        const SizedBox(height: 20),
-        for (final prompt in prompts)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: OutlinedButton(
-              onPressed: () {
-                _input.text = prompt;
-                _send();
-              },
-              child: Text(prompt),
+        if (_isGlobal && _pets.isEmpty) ...[
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE9E1D7)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '还没有宠物档案',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '先建一份档案，回答会更贴合它的年龄、品种和病史。',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  onPressed: _addPet,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('添加宠物'),
+                ),
+              ],
             ),
           ),
+        ],
+        const SizedBox(height: 26),
+        const Text(
+          '可以这样问我',
+          style: TextStyle(fontSize: 12, color: Colors.black45),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final prompt in prompts)
+              ActionChip(
+                label: Text(prompt),
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFE9E1D7)),
+                shape: const StadiumBorder(),
+                onPressed: () {
+                  _input.text = prompt;
+                  _send();
+                },
+              ),
+          ],
+        ),
       ],
     );
   }

@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/navigation.dart';
 import 'core/notifications.dart';
 import 'core/session.dart';
+import 'features/ai/assistant_root.dart';
 import 'features/auth/login_page.dart';
-import 'features/home/home_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,8 +63,9 @@ class _RootPage extends ConsumerWidget {
     final session = ref.watch(sessionProvider);
     if (session.loading) return const _SplashPage();
     if (!session.isLoggedIn) return const LoginPage();
-    // Recreate the home state when the account switches in place.
-    return HomePage(key: ValueKey(session.user!.id));
+    // The assistant is the landing page; pet records live in its drawer.
+    // Recreate it when the account switches in place.
+    return AssistantRoot(key: ValueKey(session.user!.id));
   }
 }
 

@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
-import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
-import '../ai/ai_chat_page.dart';
 import '../auth/account_switcher.dart';
 import '../pets/pet_avatar.dart';
 import '../pets/pet_detail_page.dart';
@@ -120,40 +118,14 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) _load();
   }
 
-  Future<void> _openGlobalAi() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AiChatPage(global: true)),
-    );
-    if (mounted) _load();
+  void _openGlobalAi() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  Future<void> _openAi() async {
-    final pets = _pets ?? const <Pet>[];
-    if (pets.isEmpty) {
-      showToast(context, '先添加一只宠物，再使用 AI 助手');
-      return;
-    }
-    final pet = pets.length == 1
-        ? pets.first
-        : await showModalBottomSheet<Pet>(
-            context: context,
-            showDragHandle: true,
-            builder: (context) => ListView(
-              children: [
-                for (final p in pets)
-                  ListTile(
-                    leading: Text(p.species == 'cat' ? '🐱' : '🐶'),
-                    title: Text(p.name),
-                    subtitle: Text(p.breed.isEmpty ? p.speciesLabel : p.breed),
-                    onTap: () => Navigator.pop(context, p),
-                  ),
-              ],
-            ),
-          );
-    if (pet == null || !mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => AiChatPage(pet: pet)),
-    );
+  void _openAi() {
+    // The assistant is the root page now; go back to it instead of stacking
+    // another chat page.
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   Future<void> _openCreate() async {
@@ -219,6 +191,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _switchAccount() => showAccountSwitcher(context, ref);
 
   Future<void> _signOut() async {
+    final navigator = Navigator.of(context);
     try {
       await NotificationService.cancelAll();
     } catch (_) {
@@ -226,6 +199,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
     if (!mounted) return;
     await ref.read(sessionProvider.notifier).logout();
+    // Home may be pushed from the assistant drawer; show the login page.
+    navigator.popUntil((route) => route.isFirst);
   }
 
   @override
@@ -235,7 +210,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title:
-            const Text('喵了个咪', style: TextStyle(fontWeight: FontWeight.w700)),
+            const Text('宠物档案', style: TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
             tooltip: '照护提醒',
