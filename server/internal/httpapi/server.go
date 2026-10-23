@@ -28,6 +28,7 @@ func New(st *store.Store, version string) http.Handler {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(methodOverride)
 
 	r.Get("/api/health", s.health)
 	r.Post("/api/setup", s.setup)
@@ -66,6 +67,8 @@ func New(st *store.Store, version string) http.Handler {
 		r.Get("/api/pets/{petID}/weights", s.listWeights)
 		r.Post("/api/pets/{petID}/weights", s.createWeight)
 		r.Delete("/api/weights/{weightID}", s.deleteWeight)
+		r.Post("/api/pets/{petID}/avatar", s.uploadPetAvatar)
+		r.Get("/api/pets/{petID}/avatar", s.getPetAvatar)
 		r.Post("/api/pets/{petID}/attachments", s.uploadAttachment)
 		r.Get("/api/attachments/{attachmentID}", s.downloadAttachment)
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/format_time.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 
@@ -125,8 +126,8 @@ class _AdminDevicesPageState extends ConsumerState<AdminDevicesPage> {
                             device.active
                                 ? (device.lastSeenAt.isEmpty
                                     ? '尚未上报在线时间'
-                                    : '最后在线 ${device.lastSeenAt}')
-                                : '已吊销 ${device.revokedAt}',
+                                    : '最后在线 ${formatLocalTime(device.lastSeenAt)}')
+                                : '已吊销 ${formatLocalTime(device.revokedAt)}',
                             style: const TextStyle(fontSize: 12),
                           ),
                           trailing: device.active

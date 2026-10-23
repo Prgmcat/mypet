@@ -71,9 +71,11 @@ const _mild = [
 ];
 
 RiskAssessment assessRisk(String userText, {String aiText = ''}) {
-  final text = '$userText\n$aiText';
+  // L3 must come from what the owner reports. Otherwise an educational answer
+  // that lists red-flag symptoms (e.g. "如果出现无法排尿…") would wrongly show
+  // the emergency card.
   for (final word in _redFlags) {
-    if (text.contains(word)) {
+    if (userText.contains(word)) {
       return const RiskAssessment(
         level: RiskLevel.l3,
         label: '紧急就医',
@@ -81,6 +83,7 @@ RiskAssessment assessRisk(String userText, {String aiText = ''}) {
       );
     }
   }
+  final text = '$userText\n$aiText';
   for (final word in _urgent) {
     if (text.contains(word)) {
       return const RiskAssessment(

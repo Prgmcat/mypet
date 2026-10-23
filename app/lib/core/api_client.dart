@@ -27,6 +27,9 @@ class ApiClient {
 
   String attachmentUrl(String id) => '$_baseUrl/api/attachments/$id';
 
+  String avatarUrl(String petId, int version) =>
+      '$_baseUrl/api/pets/$petId/avatar?v=$version';
+
   void configure({required String baseUrl, String? token}) {
     _baseUrl = normalizeBaseUrl(baseUrl);
     _dio.options
@@ -99,11 +102,8 @@ class ApiClient {
   }
 
   Future<void> logout() async {
-    try {
-      await _post('/api/auth/logout', const {});
-    } finally {
-      _dio.options.headers.remove('Authorization');
-    }
+    // SessionController clears local state; a later login reconfigures headers.
+    await _post('/api/auth/logout', const {});
   }
 
   Future<List<Pet>> listPets() async {
@@ -170,6 +170,16 @@ class ApiClient {
 
   Future<void> deleteWeight(String weightId) async {
     await _delete('/api/weights/$weightId');
+  }
+
+  Future<Pet> uploadPetAvatar(String petId, String filePath) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath),
+    });
+    final data = await _request(
+      () => _dio.post('/api/pets/$petId/avatar', data: form),
+    );
+    return Pet.fromJson(data as Map<String, dynamic>);
   }
 
   Future<Attachment> uploadAttachment(
@@ -359,46 +369,91 @@ class ApiClient {
   }
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
-    return _request(() => _dio.patch(path, data: body));
+    return _request(
+      () => _dio.patch(path, data: body),
+      overrideMethod: 'PATCH',
+      path: path,
+      data: body,
+    );
   }
 
   Future<dynamic> _put(String path, Map<String, dynamic> body) async {
-    return _request(() => _dio.put(path, data: body));
+    return _request(
+      () => _dio.put(path, data: body),
+      overrideMethod: 'PUT',
+      path: path,
+      data: body,
+    );
   }
 
   Future<dynamic> _delete(String path) async {
-    return _request(() => _dio.delete(path));
+    return _request(
+      () => _dio.delete(path),
+      overrideMethod: 'DELETE',
+      path: path,
+    );
   }
 
-  Future<dynamic> _request(Future<Response<dynamic>> Function() send) async {
+  Future<dynamic> _request(
+    Future<Response<dynamic>> Function() send, {
+    String? overrideMethod,
+    String? path,
+    Map<String, dynamic>? data,
+  }) async {
+    Response<dynamic> response;
     try {
-      final response = await send();
-      final body = response.data;
-      if (body is Map<String, dynamic> && body['code'] == 0) {
-        return body['data'];
-      }
-      if (body is Map<String, dynamic>) {
-        throw ApiException(
-          (body['code'] as num?)?.toInt() ?? -1,
-          (body['message'] as String?) ?? '请求失败',
-        );
-      }
-      throw ApiException(-1, '响应格式不正确');
+      response = await send();
     } on DioException catch (e) {
-      // Keep the diagnostic visible in `adb logcat` while the API surface is
-      // still being built; user-facing errors stay short.
-      // ignore: avoid_print
-      print('mypet dio error: type=${e.type} uri=${e.requestOptions.uri} '
-          'message=${e.message} error=${e.error}');
-      final body = e.response?.data;
-      if (body is Map<String, dynamic>) {
-        throw ApiException(
-          (body['code'] as num?)?.toInt() ?? -1,
-          (body['message'] as String?) ?? '请求失败',
-        );
+      // Some public HTTP tunnels (e.g. Oray/iask.in) only forward GET/POST and
+      // abort PATCH/PUT/DELETE. Retry those as POST with an override header.
+      if (overrideMethod != null && path != null && _isConnectionFailure(e)) {
+        try {
+          response = await _dio.post(
+            path,
+            data: data,
+            options: Options(headers: {
+              'X-HTTP-Method-Override': overrideMethod,
+            }),
+          );
+        } on DioException catch (retryError) {
+          throw _toApiException(retryError);
+        }
+      } else {
+        throw _toApiException(e);
       }
-      throw ApiException(-1, _networkMessage(e));
     }
+    final body = response.data;
+    if (body is Map<String, dynamic> && body['code'] == 0) {
+      return body['data'];
+    }
+    if (body is Map<String, dynamic>) {
+      throw ApiException(
+        (body['code'] as num?)?.toInt() ?? -1,
+        (body['message'] as String?) ?? '请求失败',
+      );
+    }
+    throw ApiException(-1, '响应格式不正确');
+  }
+
+  bool _isConnectionFailure(DioException e) {
+    return e.type == DioExceptionType.connectionError ||
+        (e.type == DioExceptionType.unknown && e.response == null);
+  }
+
+  ApiException _toApiException(DioException e) {
+    // Keep the diagnostic visible in `adb logcat` while the API surface is
+    // still being built; user-facing errors stay short.
+    // ignore: avoid_print
+    print('mypet dio error: type=${e.type} uri=${e.requestOptions.uri} '
+        'message=${e.message} error=${e.error}');
+    final body = e.response?.data;
+    if (body is Map<String, dynamic>) {
+      return ApiException(
+        (body['code'] as num?)?.toInt() ?? -1,
+        (body['message'] as String?) ?? '请求失败',
+      );
+    }
+    return ApiException(-1, _networkMessage(e));
   }
 
   String _networkMessage(DioException e) {

@@ -7,6 +7,7 @@ import '../../core/models.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../ai/ai_chat_page.dart';
+import '../pets/pet_avatar.dart';
 import '../pets/pet_detail_page.dart';
 import '../pets/pet_form_page.dart';
 import '../reminders/reminder_page.dart';
@@ -169,6 +170,32 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (changed == true) _load();
   }
 
+  PopupMenuItem<String> _menuItem(
+    String value,
+    IconData icon,
+    String label, {
+    bool danger = false,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 46,
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 20, color: danger ? Colors.red : Colors.black54),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              color: danger ? Colors.red : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -188,7 +215,11 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
     if (ok == true) {
-      await NotificationService.cancelAll();
+      try {
+        await NotificationService.cancelAll();
+      } catch (_) {
+        // Notification cleanup must never block logout.
+      }
       if (!mounted) return;
       await ref.read(sessionProvider.notifier).logout();
     }
@@ -213,6 +244,13 @@ class _HomePageState extends ConsumerState<HomePage> {
             ),
           ),
           PopupMenuButton<String>(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            color: Colors.white,
+            elevation: 8,
+            offset: const Offset(0, 6),
+            constraints: const BoxConstraints(minWidth: 190),
             onSelected: (value) {
               switch (value) {
                 case 'ai':
@@ -230,34 +268,11 @@ class _HomePageState extends ConsumerState<HomePage> {
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'ai',
-                child: ListTile(
-                  leading: Icon(Icons.auto_awesome_outlined),
-                  title: Text('AI 助手'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'reminders',
-                child: ListTile(
-                  leading: Icon(Icons.notifications_none),
-                  title: Text('照护提醒'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: ListTile(
-                  leading: Icon(Icons.settings_outlined),
-                  title: Text('设置'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'logout',
-                child: ListTile(
-                  leading: Icon(Icons.logout),
-                  title: Text('退出登录'),
-                ),
-              ),
+              _menuItem('ai', Icons.auto_awesome_outlined, 'AI 助手'),
+              _menuItem('reminders', Icons.notifications_none, '照护提醒'),
+              _menuItem('settings', Icons.settings_outlined, '设置'),
+              const PopupMenuDivider(height: 1),
+              _menuItem('logout', Icons.logout, '退出登录', danger: true),
             ],
           ),
         ],
@@ -420,14 +435,7 @@ class _PetCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 30,
-                backgroundColor: const Color(0xFFF1E4D8),
-                child: Text(
-                  pet.species == 'cat' ? '🐱' : pet.species == 'dog' ? '🐶' : '🐾',
-                  style: const TextStyle(fontSize: 28),
-                ),
-              ),
+              PetAvatar(pet: pet, radius: 30),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

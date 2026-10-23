@@ -70,6 +70,19 @@ func decodeOffsets(raw string) []int {
 	return v
 }
 
+// withinReminderWindow reports whether a future occurrence is close enough to
+// its earliest advance offset to be shown in the pending list.
+func withinReminderWindow(dueAt string, offsets []int) bool {
+	maxOffset := 0
+	for _, offset := range offsets {
+		if offset > maxOffset {
+			maxOffset = offset
+		}
+	}
+	limit := addDays(time.Now().UTC().Format(dateLayout), maxOffset)
+	return dueAt <= limit
+}
+
 func daysBetween(from, to string) int {
 	a, errA := time.Parse(dateLayout, from)
 	b, errB := time.Parse(dateLayout, to)
@@ -305,6 +318,11 @@ func (s *Store) ListReminders(ctx context.Context, userID, status string) ([]Rem
 			return nil, err
 		}
 		i.AdvanceOffsets = decodeOffsets(offsets)
+		if (status == "" || status == "pending") &&
+			i.Status == "pending" &&
+			!withinReminderWindow(i.DueAt, i.AdvanceOffsets) {
+			continue
+		}
 		out = append(out, i)
 	}
 	return out, rows.Err()

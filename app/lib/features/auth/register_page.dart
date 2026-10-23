@@ -4,9 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/session.dart';
 
 class RegisterPage extends ConsumerStatefulWidget {
-  const RegisterPage({super.key, required this.serverUrl});
-
-  final String serverUrl;
+  const RegisterPage({super.key});
 
   @override
   ConsumerState<RegisterPage> createState() => _RegisterPageState();
@@ -14,7 +12,6 @@ class RegisterPage extends ConsumerStatefulWidget {
 
 class _RegisterPageState extends ConsumerState<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _server;
   final _invite = TextEditingController();
   final _username = TextEditingController();
   final _display = TextEditingController();
@@ -23,14 +20,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   bool _obscure = true;
 
   @override
-  void initState() {
-    super.initState();
-    _server = TextEditingController(text: widget.serverUrl);
-  }
-
-  @override
   void dispose() {
-    _server.dispose();
     _invite.dispose();
     _username.dispose();
     _display.dispose();
@@ -42,7 +32,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     final error = await ref.read(sessionProvider.notifier).register(
-          serverUrl: _server.text,
           inviteCode: _invite.text.trim().toUpperCase(),
           username: _username.text.trim(),
           password: _password.text,
@@ -72,17 +61,6 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  TextFormField(
-                    controller: _server,
-                    keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
-                      labelText: '服务器地址',
-                      prefixIcon: Icon(Icons.dns_outlined),
-                    ),
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? '请输入服务器地址' : null,
-                  ),
-                  const SizedBox(height: 14),
                   TextFormField(
                     controller: _invite,
                     textCapitalization: TextCapitalization.characters,

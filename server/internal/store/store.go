@@ -423,17 +423,32 @@ func (s *Store) GetPetForUser(ctx context.Context, petID, userID string) (Pet, e
 
 func (s *Store) UpdatePet(ctx context.Context, petID, ownerID string, in PetInput) (Pet, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE pets SET name = ?, species = ?, breed = ?, sex = ?,
-		birthday = ?, birthday_estimated = ?, neutered = ?, avatar_path = ?, current_weight_kg = ?,
-		allergies = ?, chronic_conditions = ?, medications = ?, version = version + 1, updated_at = ?
+		birthday = ?, birthday_estimated = ?, neutered = ?,
+		avatar_path = CASE WHEN ? = '' THEN avatar_path ELSE ? END,
+		current_weight_kg = ?, allergies = ?, chronic_conditions = ?, medications = ?,
+		version = version + 1, updated_at = ?
 		WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
 		in.Name, in.Species, in.Breed, in.Sex, nullString(in.Birthday), in.BirthdayEstimated,
-		in.Neutered, nullString(in.AvatarPath), nullFloat(in.CurrentWeightKg), in.Allergies,
+		in.Neutered, in.AvatarPath, in.AvatarPath, nullFloat(in.CurrentWeightKg), in.Allergies,
 		in.ChronicConditions, in.Medications, db.Now(), petID, ownerID)
 	if err != nil {
 		return Pet{}, err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		return Pet{}, ErrNotFound
+	}
+	return s.GetPetForUser(ctx, petID, ownerID)
+}
+
+func (s *Store) SetPetAvatar(ctx context.Context, petID, ownerID, attachmentID string) (Pet, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE pets SET avatar_path = ?, version = version + 1, updated_at = ?
+		WHERE id = ? AND owner_user_id = ? AND deleted_at IS NULL`,
+		attachmentID, db.Now(), petID, ownerID)
+	if err != nil {
+		return Pet{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return Pet{}, ErrNotFound
 	}
 	return s.GetPetForUser(ctx, petID, ownerID)

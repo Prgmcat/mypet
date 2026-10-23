@@ -77,7 +77,9 @@ go run ./cmd/mypet doctor -data ./data
 
 ## 运行 Android App
 
-模拟器（默认服务器地址 `http://10.0.2.2:8787`）：
+App 内置服务器域名 `http://yangqingwen0911.iask.in`，登录页不再显示或要求填写服务器地址。
+
+本地开发时，把 `app/lib/core/session.dart` 里的 `defaultServerUrl` 临时改为本机地址（模拟器用 `http://10.0.2.2:8787`，真机可配合 `adb reverse tcp:8787 tcp:8787` 使用 `http://127.0.0.1:8787`），或在局域网内使用电脑 IP。
 
 ```bash
 cd app
@@ -97,7 +99,7 @@ flutter build apk --release --split-per-abi
 
 > 注意：`flutter build apk`（不拆分）会包含所有 ABI 和 ML Kit 全量原生库，体积约 50 MB；分发请用 `--split-per-abi`。Debug APK 还包含 Vulkan 校验层，体积异常大，不用于分发。
 
-真机：手机与服务器同一局域网，在登录页把服务器地址改成运行 Go 服务的电脑 IP，例如 `http://192.168.1.10:8787`。开发版允许 HTTP 明文（`android:usesCleartextTraffic="true"`），正式环境应使用 HTTPS 或 Tailscale/WireGuard。
+开发版允许 HTTP 明文（`android:usesCleartextTraffic="true"`），正式环境应使用 HTTPS 或 Tailscale/WireGuard。
 
 ## 权限说明
 

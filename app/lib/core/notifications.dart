@@ -115,7 +115,11 @@ class NotificationService {
 
   static Future<void> cancelAll() async {
     if (!_ready) return;
-    await _plugin.cancelAll();
+    try {
+      await _plugin.cancelAll().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Notification cleanup must never block logout.
+    }
   }
 
   /// Stable 31-bit id derived from the occurrence key and lead offset.

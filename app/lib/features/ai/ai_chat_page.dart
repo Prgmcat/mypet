@@ -415,7 +415,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     final resolved = <CaptureEvent>[];
     final pending = <CaptureEvent>[];
     for (final event in events) {
-      if (event.petId.isNotEmpty) {
+      if (event.kind == 'pet' || event.petId.isNotEmpty) {
         resolved.add(event);
       } else if (pets.length == 1) {
         event.petId = pets.first.id;
@@ -442,11 +442,26 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         createdAt: DateTime.now().toIso8601String(),
       ));
       await AiSessionStore.upsert(_userId, _session);
-      if (mounted) await _reloadContext();
+      if (mounted) {
+        if (captures.any((c) => c.kind == 'pet')) {
+          await _reloadPets();
+        } else {
+          await _reloadContext();
+        }
+      }
     }
     if (!mounted) return;
     setState(() => _pendingCaptures = pending);
     _scrollToBottom();
+  }
+
+  Future<void> _reloadPets() async {
+    try {
+      _pets = await ref.read(apiClientProvider).listPets();
+    } catch (_) {
+      // Keep the previous list if the refresh fails.
+    }
+    await _reloadContext();
   }
 
   Future<void> _applyPendingTo(Pet pet) async {
@@ -496,7 +511,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (!changed) return;
     await AiSessionStore.upsert(_userId, _session);
     if (mounted) {
-      await _reloadContext();
+      if (message.captures.any((c) => c.kind == 'pet')) {
+        await _reloadPets();
+      } else {
+        await _reloadContext();
+      }
       setState(() {});
     }
   }
@@ -972,6 +991,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
           PopupMenuButton<String>(
             tooltip: '切换模型服务商',
             icon: const Icon(Icons.memory),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+            color: Colors.white,
+            elevation: 8,
+            offset: const Offset(0, 6),
+            constraints: const BoxConstraints(minWidth: 210),
             onSelected: (value) async {
               if (value == 'settings') {
                 await _openSettings();
@@ -1338,6 +1364,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   Widget _bubble(AiStoredMessage message) {
     if (message.isCapture) {
       final active = message.captures.where((c) => !c.undone).toList();
+      final petsOnly = message.captures.isNotEmpty &&
+          message.captures.every((c) => c.kind == 'pet');
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Container(
@@ -1357,9 +1385,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '已自动记录',
-                      style: TextStyle(
+                    Text(
+                      petsOnly ? '已自动添加宠物' : '已自动记录',
+                      style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFF3E6B4F),

@@ -1,14 +1,17 @@
+import 'dart:io';
+
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
 import 'cache.dart';
 import 'models.dart';
 
-const defaultServerUrl = 'http://10.0.2.2:8787';
+/// The app is intentionally single-server: the domain is built in and the
+/// interface never asks the user to configure it.
+const defaultServerUrl = 'http://yangqingwen0911.iask.in';
 const _tokenKey = 'mypet_device_token';
-const _serverKey = 'mypet_server_url';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
 
@@ -70,13 +73,12 @@ class SessionController extends StateNotifier<SessionState> {
   );
 
   Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    final serverUrl = prefs.getString(_serverKey) ?? defaultServerUrl;
+    const serverUrl = defaultServerUrl;
     final token = await _secure.read(key: _tokenKey);
     if (token == null || token.isEmpty) {
-      state = SessionState(
+      state = const SessionState(
         loading: false,
-        serverUrl: serverUrl,
+        serverUrl: defaultServerUrl,
       );
       return;
     }
@@ -91,31 +93,33 @@ class SessionController extends StateNotifier<SessionState> {
       );
     } catch (_) {
       await _secure.delete(key: _tokenKey);
-      state = SessionState(
+      state = const SessionState(
         loading: false,
-        serverUrl: serverUrl,
+        serverUrl: defaultServerUrl,
       );
     }
   }
 
   Future<void> login({
-    required String serverUrl,
     required String username,
     required String password,
   }) async {
-    state = state.copyWith(loading: true, clearError: true, serverUrl: serverUrl);
+    state = state.copyWith(
+      loading: true,
+      clearError: true,
+      serverUrl: defaultServerUrl,
+    );
     try {
       final result = await _api.login(
-        baseUrl: serverUrl,
+        baseUrl: defaultServerUrl,
         username: username,
         password: password,
+        deviceName: await _deviceName(),
       );
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_serverKey, ApiClient.normalizeBaseUrl(serverUrl));
       await _secure.write(key: _tokenKey, value: result.token);
       state = SessionState(
         loading: false,
-        serverUrl: ApiClient.normalizeBaseUrl(serverUrl),
+        serverUrl: defaultServerUrl,
         token: result.token,
         user: result.user,
       );
@@ -127,7 +131,6 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<String?> register({
-    required String serverUrl,
     required String inviteCode,
     required String username,
     required String password,
@@ -135,13 +138,13 @@ class SessionController extends StateNotifier<SessionState> {
   }) async {
     try {
       await _api.register(
-        baseUrl: serverUrl,
+        baseUrl: defaultServerUrl,
         inviteCode: inviteCode,
         username: username,
         password: password,
         displayName: displayName,
       );
-      await login(serverUrl: serverUrl, username: username, password: password);
+      await login(username: username, password: password);
       return null;
     } on ApiException catch (e) {
       return e.message;
@@ -153,16 +156,47 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> logout() async {
     final userId = state.user?.id;
     try {
-      await _api.logout();
+      // Never let a slow tunnel or unreachable server block local logout.
+      await _api.logout().timeout(const Duration(seconds: 3));
     } catch (_) {
       // Local logout should still succeed when the server is unreachable.
     }
-    await _secure.delete(key: _tokenKey);
-    if (userId != null) await LocalCache.clear(userId);
-    state = SessionState(
+    try {
+      await _secure.delete(key: _tokenKey);
+    } catch (_) {
+      // A broken Keystore entry must not keep the user signed in.
+    }
+    try {
+      if (userId != null) await LocalCache.clear(userId);
+    } catch (_) {
+      // Cache cleanup is best effort.
+    }
+    state = const SessionState(
       loading: false,
-      serverUrl: state.serverUrl,
+      serverUrl: defaultServerUrl,
     );
+  }
+
+  Future<String> _deviceName() async {
+    try {
+      final plugin = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final info = await plugin.androidInfo;
+        final name = [info.manufacturer.trim(), info.model.trim()]
+            .where((part) => part.isNotEmpty)
+            .join(' ');
+        if (name.isNotEmpty) {
+          return name.length > 60 ? name.substring(0, 60) : name;
+        }
+      } else if (Platform.isIOS) {
+        final info = await plugin.iosInfo;
+        final name = info.utsname.machine.trim();
+        if (name.isNotEmpty) return name;
+      }
+    } catch (_) {
+      // Fall back to a generic label when the platform channel is unavailable.
+    }
+    return 'Android';
   }
 
   Future<String?> createInvite({int maxUses = 1, int ttlHours = 168}) async {

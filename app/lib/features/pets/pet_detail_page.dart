@@ -9,6 +9,7 @@ import '../../core/models.dart';
 import '../../core/session.dart';
 import '../ai/ai_chat_page.dart';
 import '../ocr/ocr_page.dart';
+import 'pet_avatar.dart';
 import '../records/record_form_page.dart';
 import '../records/timeline_page.dart';
 import '../records/weight_page.dart';
@@ -312,18 +313,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 44,
-                    backgroundColor: const Color(0xFFF1E4D8),
-                    child: Text(
-                      _pet.species == 'cat'
-                          ? '🐱'
-                          : _pet.species == 'dog'
-                              ? '🐶'
-                              : '🐾',
-                      style: const TextStyle(fontSize: 42),
-                    ),
-                  ),
+                  PetAvatar(pet: _pet, radius: 44),
                   const SizedBox(height: 12),
                   Text(
                     _pet.name,

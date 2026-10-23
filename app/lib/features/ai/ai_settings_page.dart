@@ -82,6 +82,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     var makeDefault = config.isDefault || _configured.isEmpty;
     var supportsVision = config.supportsVision;
     var loadingModels = false;
+    var obscureKey = true;
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
@@ -201,12 +202,20 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: key,
-                    obscureText: true,
+                    obscureText: obscureKey,
                     decoration: InputDecoration(
                       labelText: 'API Key',
                       helperText: _keyHints[config.id]?.isNotEmpty == true
                           ? '${_keyHints[config.id]}；留空表示不修改'
                           : '仅保存在本机安全存储，填写后才会出现在列表中',
+                      suffixIcon: IconButton(
+                        tooltip: obscureKey ? '显示 Key' : '隐藏 Key',
+                        icon: Icon(obscureKey
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined),
+                        onPressed: () =>
+                            setDialogState(() => obscureKey = !obscureKey),
+                      ),
                     ),
                   ),
                   SwitchListTile(
@@ -384,6 +393,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     var kind = 'openai';
     var supportsVision = false;
     var loadingModels = false;
+    var obscureKey = true;
     final formKey = GlobalKey<FormState>();
     final ok = await showDialog<bool>(
       context: context,
@@ -507,10 +517,18 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: key,
-                    obscureText: true,
-                    decoration: const InputDecoration(
+                    obscureText: obscureKey,
+                    decoration: InputDecoration(
                       labelText: 'API Key',
                       helperText: '仅保存在本机安全存储',
+                      suffixIcon: IconButton(
+                        tooltip: obscureKey ? '显示 Key' : '隐藏 Key',
+                        icon: Icon(obscureKey
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined),
+                        onPressed: () =>
+                            setDialogState(() => obscureKey = !obscureKey),
+                      ),
                     ),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? '请输入 API Key' : null,
@@ -701,6 +719,13 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
         isThreeLine: true,
         onTap: () => _edit(config),
         trailing: PopupMenuButton<String>(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          color: Colors.white,
+          elevation: 8,
+          offset: const Offset(0, 6),
+          constraints: const BoxConstraints(minWidth: 170),
           onSelected: (value) {
             switch (value) {
               case 'default':

@@ -495,6 +495,7 @@ class Pet {
   final String status;
   final int version;
   final String role;
+  final String avatarPath;
 
   Pet({
     required this.id,
@@ -514,6 +515,7 @@ class Pet {
     required this.status,
     required this.version,
     required this.role,
+    this.avatarPath = '',
   });
 
   factory Pet.fromJson(Map<String, dynamic> json) => Pet(
@@ -534,6 +536,7 @@ class Pet {
         status: (json['status'] as String?) ?? 'active',
         version: (json['version'] as num?)?.toInt() ?? 1,
         role: (json['role'] as String?) ?? 'owner',
+        avatarPath: (json['avatarPath'] as String?) ?? '',
       );
 
   bool get isOwner => role == 'owner';
@@ -575,5 +578,6 @@ class Pet {
         'status': status,
         'version': version,
         'role': role,
+        'avatarPath': avatarPath,
       };
 }

@@ -113,6 +113,9 @@ String _formatKg(double kg) {
 
 /// Deterministic, offline extraction for the common phrasings.
 List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
+  final newPet = _parseNewPet(text);
+  if (newPet != null) return [newPet];
+
   final events = <CaptureEvent>[];
   final pet = matchPet(text, pets);
 
@@ -173,6 +176,130 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
   return events;
 }
 
+const _newPetCues = [
+  '新养',
+  '领养',
+  '接回来',
+  '接回家',
+  '家里来',
+  '捡到',
+  '又多',
+  '又养',
+  '再养',
+  '刚养',
+  '新成员',
+];
+
+const _breedWords = [
+  '美短',
+  '英短',
+  '布偶',
+  '暹罗',
+  '狸花',
+  '橘猫',
+  '金毛',
+  '柯基',
+  '泰迪',
+  '贵宾',
+  '柴犬',
+  '边牧',
+  '拉布拉多',
+  '哈士奇',
+  '萨摩耶',
+  '比熊',
+  '博美',
+  '田园犬',
+  '混血',
+];
+
+String _dateOnly(DateTime date) =>
+    '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+CaptureEvent? _parseNewPet(String text) {
+  final hasCue = _newPetCues.any(text.contains) ||
+      RegExp(r'养了(一)?[只条]').hasMatch(text);
+  if (!hasCue) return null;
+  final nameMatch = RegExp(
+    r'(?:名字)?叫\s*(?:它|做|为)?\s*([一-龥A-Za-z0-9]{1,10})',
+  ).firstMatch(text);
+  if (nameMatch == null) return null;
+  final name = nameMatch.group(1)!;
+
+  var species = 'other';
+  if (text.contains('猫')) {
+    species = 'cat';
+  } else if (text.contains('狗') || text.contains('犬')) {
+    species = 'dog';
+  }
+  var breed = '';
+  for (final word in _breedWords) {
+    if (text.contains(word)) {
+      breed = word;
+      break;
+    }
+  }
+  var sex = 'unknown';
+  if (RegExp(r'(母|妹妹|女孩)').hasMatch(text)) {
+    sex = 'female';
+  } else if (RegExp(r'(公|弟弟|男孩)').hasMatch(text)) {
+    sex = 'male';
+  }
+  var neutered = 'unknown';
+  if (text.contains('绝育')) {
+    neutered = (text.contains('未绝育') ||
+            text.contains('没绝育') ||
+            text.contains('未做') ||
+            text.contains('没做'))
+        ? 'no'
+        : 'yes';
+  }
+
+  String birthday = '';
+  final ageMatch =
+      RegExp(r'(\d+(?:\.\d+)?)\s*(岁|个月|月)').firstMatch(text);
+  if (ageMatch != null) {
+    final value = double.tryParse(ageMatch.group(1)!) ?? 0;
+    final months =
+        ageMatch.group(2) == '岁' ? (value * 12).round() : value.round();
+    if (months > 0 && months < 360) {
+      final now = DateTime.now();
+      birthday = _dateOnly(DateTime(now.year, now.month - months, now.day));
+    }
+  }
+
+  double weightKg = 0;
+  final weightMatch =
+      RegExp(r'(\d+(?:\.\d+)?)\s*(公斤|千克|kg|KG|Kg|斤)').firstMatch(text);
+  if (weightMatch != null) {
+    final raw = double.tryParse(weightMatch.group(1)!) ?? 0;
+    weightKg = weightMatch.group(2) == '斤' ? raw / 2 : raw;
+    if (weightKg <= 0 || weightKg > 120) weightKg = 0;
+  }
+
+  final speciesLabel =
+      species == 'cat' ? '猫' : species == 'dog' ? '狗' : '其他';
+  return CaptureEvent(
+    kind: 'pet',
+    petId: '',
+    petName: name,
+    label: '新宠物：$name（$speciesLabel${breed.isEmpty ? '' : ' · $breed'}）',
+    payload: {
+      'name': name,
+      'species': species,
+      'breed': breed,
+      'sex': sex,
+      'birthday': birthday,
+      'birthdayEstimated': birthday.isNotEmpty,
+      'neutered': neutered,
+      'currentWeightKg': weightKg,
+      'allergies': '',
+      'chronicConditions': '',
+      'medications': '',
+    },
+    note: text,
+  );
+}
+
 String _extractProduct(String text) {
   final match = RegExp(
     r'(?:换(?:了|成|上|一款|一代)?|吃(?:了)?|买了?|试了?)\s*([^，。,.!?；;\n]{1,18})',
@@ -189,16 +316,22 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
   final list = pets.map((p) => '${p.name}（${p.speciesLabel}）').join('、');
   return '''
 你是宠物档案信息抽取器。已知账号下的宠物：$list。
-从用户这句话里提取需要写入健康档案的已发生事实，只输出一个 JSON 对象，不要 markdown 或解释。
+从用户这句话里提取需要写入档案的已发生事实，只输出一个 JSON 对象，不要 markdown 或解释。
 格式：
-{"events":[{"kind":"weight|medical|diet","pet":"宠物名字或空字符串","weightKg":2.5,
-"title":"不超过 20 字","note":"原始描述","product":"换粮/食品名称"}]}
+{"events":[
+ {"kind":"weight|medical|diet","pet":"宠物名字或空字符串","weightKg":2.5,
+  "title":"不超过 20 字","note":"原始描述","product":"换粮/食品名称"},
+ {"kind":"pet","name":"新宠物名字","species":"cat|dog|other","breed":"","sex":"male|female|unknown",
+  "birthday":"YYYY-MM-DD 或空","ageMonths":24,"weightKg":2.5,"neutered":"yes|no|unknown","note":"原始描述"}
+]}
 规则：
 1. 只提取用户明确陈述、已经发生的事实；提问、假设、计划不要记录。
 2. weight 必须给出公斤数；用户用“斤”时要换算成公斤（1 斤 = 0.5 kg）。
 3. medical 用于症状/就诊，title 用简短症状；diet 用于换粮、食品、配方。
-4. 无法确定是哪只宠物时 pet 留空，不要猜。
-5. 没有可记录内容时输出 {"events":[]}；不要编造数值。
+4. pet 只用于用户明确说“新养/领养/家里来了/捡到”等新加入的宠物，且必须能确定名字；
+   已经在列表里的宠物绝不能输出 pet 事件。
+5. 无法确定是哪只宠物时 pet 留空，不要猜。
+6. 没有可记录内容时输出 {"events":[]}；不要编造数值或名字。
 ''';
 }
 
@@ -227,6 +360,53 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
     }
     if (pet == null && pets.length == 1 && petName.isEmpty) pet = pets.first;
     final note = ((item['note'] as String?) ?? '').trim();
+    if (kind == 'pet') {
+      final name = ((item['name'] as String?) ?? '').trim();
+      if (name.isEmpty || name.length > 20) continue;
+      var species = ((item['species'] as String?) ?? 'other').trim();
+      if (species != 'cat' && species != 'dog') species = 'other';
+      final breed = ((item['breed'] as String?) ?? '').trim();
+      var sex = ((item['sex'] as String?) ?? 'unknown').trim();
+      if (sex != 'male' && sex != 'female') sex = 'unknown';
+      var neutered = ((item['neutered'] as String?) ?? 'unknown').trim();
+      if (neutered != 'yes' && neutered != 'no') neutered = 'unknown';
+      var birthday = ((item['birthday'] as String?) ?? '').trim();
+      if (birthday.isNotEmpty && DateTime.tryParse(birthday) == null) {
+        birthday = '';
+      }
+      if (birthday.isEmpty) {
+        final months = (item['ageMonths'] as num?)?.toInt() ?? 0;
+        if (months > 0 && months < 360) {
+          final now = DateTime.now();
+          birthday = _dateOnly(DateTime(now.year, now.month - months, now.day));
+        }
+      }
+      final kg = (item['weightKg'] as num?)?.toDouble() ?? 0;
+      final speciesLabel =
+          species == 'cat' ? '猫' : species == 'dog' ? '狗' : '其他';
+      out.add(CaptureEvent(
+        kind: 'pet',
+        petId: '',
+        petName: name,
+        label:
+            '新宠物：$name（$speciesLabel${breed.isEmpty ? '' : ' · $breed'}）',
+        payload: {
+          'name': name,
+          'species': species,
+          'breed': breed,
+          'sex': sex,
+          'birthday': birthday,
+          'birthdayEstimated': birthday.isNotEmpty,
+          'neutered': neutered,
+          'currentWeightKg': (kg > 0 && kg <= 120) ? kg : 0,
+          'allergies': '',
+          'chronicConditions': '',
+          'medications': '',
+        },
+        note: note,
+      ));
+      continue;
+    }
     if (kind == 'weight') {
       final kg = (item['weightKg'] as num?)?.toDouble() ?? 0;
       if (kg <= 0 || kg > 120) continue;
@@ -283,6 +463,16 @@ Future<List<CaptureEvent>> extractCapturesWithAi({
 
 /// Writes one event and returns the persisted capture descriptor.
 Future<AiCapture> applyCapture(ApiClient api, CaptureEvent event) async {
+  if (event.kind == 'pet') {
+    final pet = await api.createPet(Map<String, dynamic>.from(event.payload));
+    return AiCapture(
+      kind: 'pet',
+      id: pet.id,
+      petId: pet.id,
+      petName: pet.name,
+      label: event.label,
+    );
+  }
   if (event.petId.isEmpty) {
     throw StateError('缺少宠物');
   }
@@ -322,7 +512,9 @@ Future<AiCapture> applyCapture(ApiClient api, CaptureEvent event) async {
 
 Future<void> undoCapture(ApiClient api, AiCapture capture) async {
   if (capture.undone) return;
-  if (capture.kind == 'weight') {
+  if (capture.kind == 'pet') {
+    await api.deletePet(capture.id);
+  } else if (capture.kind == 'weight') {
     await api.deleteWeight(capture.id);
   } else {
     await api.deleteRecord(capture.id);

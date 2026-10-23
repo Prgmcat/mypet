@@ -1,5 +1,9 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaolegemi/core/ai/ai_capture.dart';
+import 'package:miaolegemi/core/api_client.dart';
 import 'package:miaolegemi/core/models.dart';
 
 Pet buildPet(String id, String name, String species) => Pet(
@@ -65,6 +69,109 @@ void main() {
     expect(parseLocalCaptures('咪咪下次驱虫是什么时候', pets), isEmpty);
     expect(looksRecordWorthy('咪咪下次驱虫是什么时候'), true);
     expect(parseLocalCaptures('咪咪吃什么猫粮好', pets), isEmpty);
+  });
+
+  test('new pet sentence creates a pet event', () {
+    final events = parseLocalCaptures(
+      '我新养了一只猫叫豆豆，2岁，美短，公的，5斤',
+      pets,
+    );
+    expect(events.length, 1);
+    final event = events.single;
+    expect(event.kind, 'pet');
+    expect(event.payload['name'], '豆豆');
+    expect(event.payload['species'], 'cat');
+    expect(event.payload['breed'], '美短');
+    expect(event.payload['sex'], 'male');
+    expect(event.payload['currentWeightKg'], 2.5);
+    expect(event.payload['birthday'], isNotEmpty);
+    expect(event.label, contains('豆豆'));
+  });
+
+  test('talking about an existing pet is not a new pet', () {
+    expect(parseLocalCaptures('咪咪养了三年了', pets), isEmpty);
+  });
+
+  test('AI pet JSON is mapped to a new pet capture', () {
+    final events = parseCaptureJson('''
+{"events":[{"kind":"pet","name":"旺财","species":"dog","breed":"柯基",
+"sex":"male","ageMonths":3,"weightKg":4.2,"neutered":"no"}]}
+''', pets);
+    expect(events.length, 1);
+    final event = events.single;
+    expect(event.kind, 'pet');
+    expect(event.payload['name'], '旺财');
+    expect(event.payload['species'], 'dog');
+    expect(event.payload['breed'], '柯基');
+    expect(event.payload['neutered'], 'no');
+    expect(event.payload['birthday'], isNotEmpty);
+  });
+
+  test('applyCapture creates the new pet and undo deletes it', () async {
+    var deleted = false;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      if (request.method == 'POST' && request.uri.path == '/api/pets') {
+        final body = jsonDecode(await utf8.decoder.bind(request).join());
+        expect(body['name'], '豆豆');
+        expect(body['species'], 'cat');
+        expect(body['breed'], '美短');
+        expect(body['currentWeightKg'], 2.5);
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'code': 0,
+          'message': 'ok',
+          'data': {
+            'id': 'p-new',
+            'ownerUserId': 'u1',
+            'name': body['name'],
+            'species': body['species'],
+            'breed': body['breed'],
+            'sex': body['sex'],
+            'birthday': body['birthday'],
+            'birthdayEstimated': body['birthdayEstimated'],
+            'neutered': body['neutered'],
+            'currentWeightKg': body['currentWeightKg'],
+            'allergies': '',
+            'chronicConditions': '',
+            'medications': '',
+            'identityNo': 'PET2026123456',
+            'status': 'active',
+            'version': 1,
+            'role': 'owner',
+          },
+        }));
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'DELETE' &&
+          request.uri.path == '/api/pets/p-new') {
+        deleted = true;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+            jsonEncode({'code': 0, 'message': 'ok', 'data': {'ok': true}}));
+        await request.response.close();
+        return;
+      }
+      request.response.statusCode = 404;
+      await request.response.close();
+    });
+    try {
+      final api = ApiClient()
+        ..configure(baseUrl: 'http://127.0.0.1:${server.port}');
+      final events = parseLocalCaptures(
+        '我新养了一只猫叫豆豆，2岁，美短，公的，5斤',
+        pets,
+      );
+      final capture = await applyCapture(api, events.single);
+      expect(capture.kind, 'pet');
+      expect(capture.id, 'p-new');
+      expect(capture.petName, '豆豆');
+      await undoCapture(api, capture);
+      expect(deleted, true);
+    } finally {
+      await server.close(force: true);
+    }
   });
 
   test('AI JSON extraction is validated and mapped', () {

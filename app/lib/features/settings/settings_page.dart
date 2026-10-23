@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/format_time.dart';
 import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../ai/ai_settings_page.dart';
@@ -68,7 +69,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           title: Text(d.name.isEmpty ? 'Android' : d.name),
                           subtitle: Text((d.lastSeenAt ?? '').isEmpty
                               ? '尚未上报在线时间'
-                              : '最后在线 ${d.lastSeenAt}'),
+                              : '最后在线 ${formatLocalTime(d.lastSeenAt!)}'),
                           trailing: IconButton(
                             tooltip: '吊销',
                             icon: const Icon(Icons.logout, size: 20),
@@ -208,11 +209,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       '退出登录',
       '退出后会清除本机设备凭证，服务器数据不受影响。',
     );
-    if (ok) {
+    if (!ok || !mounted) return;
+    final navigator = Navigator.of(context);
+    try {
       await NotificationService.cancelAll();
-      if (!mounted) return;
-      await ref.read(sessionProvider.notifier).logout();
+    } catch (_) {
+      // Notification cleanup must never block logout.
     }
+    if (!mounted) return;
+    await ref.read(sessionProvider.notifier).logout();
+    // The stable root route now shows LoginPage; leave the pushed Settings.
+    navigator.popUntil((route) => route.isFirst);
   }
 
   void _showDataInfo() {
@@ -274,7 +281,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
     final user = session.user;
-    final api = ref.read(apiClientProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
@@ -286,7 +292,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ListTile(
                   leading: const Icon(Icons.dns_outlined),
                   title: const Text('服务器'),
-                  subtitle: Text(session.serverUrl),
+                  subtitle: const Text('连接状态与版本'),
                   trailing: Text(
                     _checking
                         ? '检查中…'
@@ -392,12 +398,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   title: const Text('关于与隐私'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: _showAbout,
-                ),
-                const Divider(height: 1, indent: 16, endIndent: 16),
-                ListTile(
-                  leading: const Icon(Icons.cloud_outlined),
-                  title: const Text('服务器地址'),
-                  subtitle: Text(api.baseUrl),
                 ),
               ],
             ),

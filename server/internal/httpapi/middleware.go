@@ -16,6 +16,20 @@ const (
 	ctxDevice ctxKey = "device"
 )
 
+// methodOverride lets restrictive HTTP tunnels that only forward GET/POST
+// carry PATCH/PUT/DELETE through the X-HTTP-Method-Override header.
+func methodOverride(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			switch strings.ToUpper(strings.TrimSpace(r.Header.Get("X-HTTP-Method-Override"))) {
+			case http.MethodPatch, http.MethodPut, http.MethodDelete:
+				r.Method = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-HTTP-Method-Override")))
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")

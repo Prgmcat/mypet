@@ -17,12 +17,11 @@ Future<void> main() async {
   runApp(const ProviderScope(child: MyApp()));
 }
 
-class MyApp extends ConsumerWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(sessionProvider);
+  Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: appNavigatorKey,
       title: '喵了个咪',
@@ -49,12 +48,21 @@ class MyApp extends ConsumerWidget {
           ),
         ),
       ),
-      home: session.loading
-          ? const _SplashPage()
-          : session.isLoggedIn
-              ? const HomePage()
-              : const LoginPage(),
+      home: const _RootPage(),
     );
+  }
+}
+
+/// Keeps one stable root route while the session changes, so pushed pages such
+/// as Settings can be popped back to the correct login/home screen.
+class _RootPage extends ConsumerWidget {
+  const _RootPage();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(sessionProvider);
+    if (session.loading) return const _SplashPage();
+    return session.isLoggedIn ? const HomePage() : const LoginPage();
   }
 }
 

@@ -40,9 +40,9 @@ void main() {
     expect(assessRisk('下次驱虫是什么时候').level, RiskLevel.l0);
   });
 
-  test('model output can escalate risk', () {
-    final risk = assessRisk('它不太舒服', aiText: '如果出现抽搐请立刻就医');
-    expect(risk.level, RiskLevel.l3);
+  test('educational red flags in the answer do not raise L3', () {
+    final risk = assessRisk('它不太舒服', aiText: '如果出现抽搐、无法排尿请立刻就医');
+    expect(risk.level, isNot(RiskLevel.l3));
   });
 
   test('system prompt includes the pet profile and safety rules', () {

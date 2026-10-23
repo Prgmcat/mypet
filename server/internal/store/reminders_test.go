@@ -48,8 +48,8 @@ func TestReminderLifecycle(t *testing.T) {
 	}
 
 	record, err := s.CreateRecord(ctx, pet.ID, owner.ID, RecordInput{
-		Type: "vaccine", OccurredAt: "2026-01-01", Title: "猫三联",
-		Payload: json.RawMessage(`{}`), NextDueAt: "2027-01-01",
+		Type: "vaccine", OccurredAt: "2025-10-30", Title: "猫三联",
+		Payload: json.RawMessage(`{}`), NextDueAt: "2026-10-30",
 	})
 	if err != nil {
 		t.Fatalf("create record: %v", err)
@@ -74,7 +74,7 @@ func TestReminderLifecycle(t *testing.T) {
 	if vaccine.ID == "" {
 		t.Fatalf("expected pending vaccine reminder, got %+v", pending)
 	}
-	if vaccine.DueAt != "2027-01-01" {
+	if vaccine.DueAt != "2026-10-30" {
 		t.Fatalf("unexpected due date %q", vaccine.DueAt)
 	}
 
@@ -99,22 +99,18 @@ func TestReminderLifecycle(t *testing.T) {
 			nextDue = r.NextDueAt
 		}
 	}
-	if nextDue != "2028-01-01" {
-		t.Fatalf("expected next due 2028-01-01, got %q", nextDue)
+	if nextDue != "2027-10-30" {
+		t.Fatalf("expected next due 2027-10-30, got %q", nextDue)
 	}
 
 	pending, err = s.ListReminders(ctx, owner.ID, "pending")
 	if err != nil {
 		t.Fatalf("list after complete: %v", err)
 	}
-	foundNext := false
 	for _, r := range pending {
-		if r.Type == "vaccine" && r.DueAt == "2028-01-01" {
-			foundNext = true
+		if r.Type == "vaccine" {
+			t.Fatalf("next occurrence should stay out of the pending window: %+v", r)
 		}
-	}
-	if !foundNext {
-		t.Fatalf("expected next vaccine occurrence, got %+v", pending)
 	}
 }
 

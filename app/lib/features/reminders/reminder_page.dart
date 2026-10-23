@@ -49,28 +49,42 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     });
     final api = ref.read(apiClientProvider);
     final userId = ref.read(sessionProvider).user?.id;
+    List<List<Reminder>> results;
     try {
-      final results = await Future.wait(
+      results = await Future.wait(
         _statuses.map((status) => api.listReminders(status: status)),
       );
-      if (!mounted) return;
-      setState(() {
-        for (var i = 0; i < _statuses.length; i++) {
-          _byStatus[_statuses[i]] = results[i];
-        }
-        _loading = false;
-        _offline = false;
-      });
-      if (userId != null) {
+    } on ApiException catch (e) {
+      await _loadCached(e.message);
+      return;
+    } catch (e) {
+      debugPrint('reminders load failed: $e');
+      await _loadCached('提醒加载失败，请检查服务器连接');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      for (var i = 0; i < _statuses.length; i++) {
+        _byStatus[_statuses[i]] = results[i];
+      }
+      _loading = false;
+      _offline = false;
+    });
+    // Caching and notification scheduling are best effort; neither should
+    // turn a successful online load into an "offline" screen.
+    if (userId != null) {
+      try {
         for (var i = 0; i < _statuses.length; i++) {
           await LocalCache.saveReminders(userId, _statuses[i], results[i]);
         }
+      } catch (e) {
+        debugPrint('reminders cache save failed: $e');
       }
+    }
+    try {
       await NotificationService.syncReminders(_byStatus['pending']!);
-    } on ApiException catch (e) {
-      await _loadCached(e.message);
-    } catch (_) {
-      await _loadCached('提醒加载失败，请检查服务器连接');
+    } catch (e) {
+      debugPrint('reminders notification sync failed: $e');
     }
   }
 

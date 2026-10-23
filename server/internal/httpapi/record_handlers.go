@@ -217,6 +217,74 @@ func (s *Server) createWeight(w http.ResponseWriter, r *http.Request) {
 	writeData(w, r, http.StatusCreated, weight)
 }
 
+func (s *Server) uploadPetAvatar(w http.ResponseWriter, r *http.Request) {
+	pet, err := s.store.GetPetForUser(r.Context(), chi.URLParam(r, "petID"), currentUser(r).ID)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	if pet.Role != "owner" {
+		writeError(w, r, http.StatusForbidden, 30007, "only the owner can change the avatar")
+		return
+	}
+	const maxAvatar = 5 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxAvatar+1<<20)
+	if err := r.ParseMultipartForm(maxAvatar); err != nil {
+		writeError(w, r, http.StatusBadRequest, 10003, "file is too large or invalid multipart form")
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, 10004, "file field is required")
+		return
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxAvatar+1))
+	if err != nil || len(data) > maxAvatar {
+		writeError(w, r, http.StatusRequestEntityTooLarge, 10006, "avatar must be at most 5 MB")
+		return
+	}
+	mime := http.DetectContentType(data)
+	switch mime {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		writeError(w, r, http.StatusBadRequest, 10007, "only JPEG, PNG or WebP are allowed")
+		return
+	}
+	attachment, err := s.store.SaveAttachment(r.Context(), pet.ID, "", filepath.Base(header.Filename), mime, data)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	updated, err := s.store.SetPetAvatar(r.Context(), pet.ID, currentUser(r).ID, attachment.ID)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	s.store.Audit(r.Context(), "user", currentUser(r).ID, "set_pet_avatar", "pet", pet.ID, "{}")
+	writeData(w, r, http.StatusOK, updated)
+}
+
+func (s *Server) getPetAvatar(w http.ResponseWriter, r *http.Request) {
+	pet, err := s.store.GetPetForUser(r.Context(), chi.URLParam(r, "petID"), currentUser(r).ID)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	if pet.AvatarPath == "" {
+		writeError(w, r, http.StatusNotFound, 30003, "avatar not set")
+		return
+	}
+	attachment, path, err := s.store.GetAttachmentWithPath(r.Context(), pet.AvatarPath)
+	if err != nil || attachment.PetID != pet.ID {
+		writeError(w, r, http.StatusNotFound, 30003, "avatar not found")
+		return
+	}
+	w.Header().Set("Content-Type", attachment.Mime)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	http.ServeFile(w, r, path)
+}
+
 func (s *Server) deleteWeight(w http.ResponseWriter, r *http.Request) {
 	weightID := chi.URLParam(r, "weightID")
 	weight, err := s.store.GetWeight(r.Context(), weightID)

@@ -237,6 +237,11 @@ func (s *Store) ListRemindersForPet(ctx context.Context, petID, status string) (
 			return nil, err
 		}
 		i.AdvanceOffsets = decodeOffsets(offsets)
+		if (status == "" || status == "pending") &&
+			i.Status == "pending" &&
+			!withinReminderWindow(i.DueAt, i.AdvanceOffsets) {
+			continue
+		}
 		out = append(out, i)
 	}
 	return out, rows.Err()
