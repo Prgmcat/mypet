@@ -1,0 +1,16 @@
+# Runtime data
+data/
+server/data/
+backup/
+.devtmp/
+*.db
+*.db-wal
+*.db-shm
+
+# Go binaries
+server/mypet
+server/mypet.exe
+
+# OS
+.DS_Store
+Thumbs.db
