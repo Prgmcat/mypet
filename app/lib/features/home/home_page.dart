@@ -195,8 +195,6 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(sessionProvider);
-    final user = session.user;
     return Scaffold(
       appBar: AppBar(
         title:
@@ -247,7 +245,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       body: RefreshIndicator(
         onRefresh: _load,
-        child: _buildBody(user),
+        child: _buildBody(),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openCreate,
@@ -257,7 +255,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildBody(User? user) {
+  Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -296,14 +294,6 @@ class _HomePageState extends ConsumerState<HomePage> {
               '离线：显示最近缓存'
               '${_cachedAt == null ? '' : '（${_cachedAt!.year}-${_cachedAt!.month.toString().padLeft(2, '0')}-${_cachedAt!.day.toString().padLeft(2, '0')}）'}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
-            ),
-          ),
-        if (user != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Text(
-              '你好，${user.displayName.isEmpty ? user.username : user.displayName}',
-              style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
         if (pets.isEmpty)

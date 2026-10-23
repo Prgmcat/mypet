@@ -356,7 +356,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       system = buildGlobalSystemPrompt(_contexts);
     } else {
       system = '你是宠物照护助手。用中文简洁回答，不确诊、不开药、不给剂量；'
-          '紧急症状建议立即就医，并说明 AI 不能替代兽医面诊。';
+          '紧急症状建议立即就医。';
     }
     final history = _session.messages
         .where((m) => m.role == 'user' || m.role == 'assistant')
@@ -1527,10 +1527,10 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     final userName = ref.read(sessionProvider).user?.displayName ?? '';
     final prompts = _isGlobal
         ? const [
-            '咪咪今天拉稀了',
-            '咪咪 5.2 公斤了',
-            '今天换了新猫粮，帮我看看配方',
-            '下次驱虫是什么时候？',
+            '多久洗一次澡比较合适？',
+            '疫苗和驱虫要怎么安排？',
+            '它能吃哪些人类食物？',
+            '它晚上总闹怎么办？',
           ]
         : const [
             '最近食欲下降，需要观察什么？',
@@ -1677,7 +1677,6 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       );
     }
     final isUser = message.role == 'user';
-    final risk = message.riskLevel;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -1697,11 +1696,6 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               crossAxisAlignment:
                   isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
-                if (!isUser && risk.isNotEmpty && risk != 'l0')
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: _riskChip(risk),
-                  ),
                 if (message.images.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -1841,22 +1835,6 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _riskChip(String level) {
-    final (label, color) = switch (level) {
-      'l3' => ('紧急就医', const Color(0xFF9B2C2C)),
-      'l2' => ('建议 24h 内就医', const Color(0xFF8A4B08)),
-      _ => ('先观察', const Color(0xFF3E6B4F)),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label, style: TextStyle(fontSize: 10, color: color)),
     );
   }
 

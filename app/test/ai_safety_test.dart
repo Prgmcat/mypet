@@ -81,7 +81,10 @@ void main() {
     expect(prompt, contains('慢性肾病'));
     expect(prompt, contains('猫三联'));
     expect(prompt, contains('禁止确诊'));
-    expect(prompt, contains('紧急就医'));
+    expect(prompt, contains('立即就医'));
+    // Risk-level labels and AI disclaimers are intentionally not requested.
+    expect(prompt, isNot(contains('风险级别')));
+    expect(prompt, isNot(contains('不能替代兽医')));
   });
 
   test('record extraction prompt requests a single JSON object', () {

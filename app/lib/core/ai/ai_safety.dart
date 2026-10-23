@@ -164,9 +164,8 @@ String buildSystemPrompt({
     '- 电子身份证号：${pet.identityNo}',
   ];
   if (weights.isNotEmpty) {
-    final recent = weights.length > 4
-        ? weights.sublist(weights.length - 4)
-        : weights;
+    final recent =
+        weights.length > 4 ? weights.sublist(weights.length - 4) : weights;
     lines.add(
       '- 最近体重：${recent.map((w) => '${w.measuredAt} ${w.weightKg.toStringAsFixed(1)}kg').join('，')}',
     );
@@ -185,9 +184,7 @@ String buildSystemPrompt({
     '回答规则（必须遵守）：',
     '1. 结合当前宠物档案回答，不要给通用模板；信息不足时先追问。',
     '2. 禁止确诊、开处方、推荐人用药替代或给出具体药物剂量。',
-    '3. 每次回答都要说明风险级别（日常照护/先观察/建议 24 小时内就医/紧急就医）。',
-    '4. 出现呼吸困难、抽搐、大量出血、误食毒物、无法排尿、意识丧失、难产、高热、严重外伤等情况，第一句话必须建议立即就医。',
-    '5. 说明你是 AI，不能替代兽医面诊。',
+    '3. 出现呼吸困难、抽搐、大量出血、误食毒物、无法排尿、意识丧失、难产、高热、严重外伤等情况，第一句话必须建议立即就医。',
   ]);
   return lines.join('\n');
 }
