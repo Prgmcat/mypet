@@ -8,7 +8,6 @@ import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
-import '../ai/ai_chat_page.dart';
 import '../ocr/ocr_page.dart';
 import 'pet_avatar.dart';
 import '../records/record_form_page.dart';
@@ -129,12 +128,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
   Future<void> _openShare() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => PetSharePage(pet: _pet)),
-    );
-  }
-
-  Future<void> _openAi() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => AiChatPage(pet: _pet)),
     );
   }
 
@@ -271,11 +264,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       appBar: AppBar(
         title: Text(_pet.name),
         actions: [
-          IconButton(
-            onPressed: _openAi,
-            icon: const Icon(Icons.auto_awesome_outlined),
-            tooltip: 'AI 助手',
-          ),
           if (_canEditRecords)
             IconButton(
               onPressed: _openOcr,

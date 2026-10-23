@@ -118,16 +118,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) _load();
   }
 
-  void _openGlobalAi() {
-    Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
-  void _openAi() {
-    // The assistant is the root page now; go back to it instead of stacking
-    // another chat page.
-    Navigator.of(context).popUntil((route) => route.isFirst);
-  }
-
   Future<void> _openCreate() async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const PetFormPage()),
@@ -231,9 +221,6 @@ class _HomePageState extends ConsumerState<HomePage> {
             constraints: const BoxConstraints(minWidth: 190),
             onSelected: (value) {
               switch (value) {
-                case 'ai':
-                  _openAi();
-                  break;
                 case 'reminders':
                   _openReminders();
                   break;
@@ -249,7 +236,6 @@ class _HomePageState extends ConsumerState<HomePage> {
               }
             },
             itemBuilder: (context) => [
-              _menuItem('ai', Icons.auto_awesome_outlined, 'AI 助手'),
               _menuItem('reminders', Icons.notifications_none, '照护提醒'),
               _menuItem('settings', Icons.settings_outlined, '设置'),
               _menuItem('switch', Icons.switch_account_outlined, '切换账号'),
@@ -320,53 +306,6 @@ class _HomePageState extends ConsumerState<HomePage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Material(
-            color: const Color(0xFF2F2A26),
-            borderRadius: BorderRadius.circular(18),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: _openGlobalAi,
-              child: const Padding(
-                padding: EdgeInsets.fromLTRB(18, 16, 14, 16),
-                child: Row(
-                  children: [
-                    Icon(Icons.auto_awesome,
-                        color: Color(0xFFE8C9A6), size: 28),
-                    SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'AI 助手',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '直接说：咪咪 5 斤了 · 今天拉稀了 · 换了新猫粮\n'
-                            '我会边回答边把有用的信息记进档案',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, color: Colors.white38),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
         if (pets.isEmpty)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 24),
