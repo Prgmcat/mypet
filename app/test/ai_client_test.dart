@@ -95,6 +95,96 @@ void main() {
     }
   });
 
+  test('OpenAI-compatible image message uses data URLs', () async {
+    final dir = await Directory.systemTemp.createTemp('mypet-ai-test');
+    final image = File('${dir.path}/photo.png');
+    await image.writeAsBytes([137, 80, 78, 71, 1, 2, 3]);
+    HttpServer? server;
+    try {
+      server = await startServer((request) async {
+        final body = jsonDecode(await utf8.decoder.bind(request).join());
+        final content = body['messages'][1]['content'];
+        expect(content, isA<List>());
+        expect(content[0]['type'], 'text');
+        expect(content[1]['type'], 'image_url');
+        expect(content[1]['image_url']['url'],
+            startsWith('data:image/png;base64,'));
+        writeSse(request.response, [
+          'data: {"choices":[{"delta":{"content":"看到了"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]);
+      });
+      final config = AiProviderConfig(
+        id: 'test',
+        name: 'test',
+        kind: 'openai',
+        baseUrl: 'http://127.0.0.1:${server.port}/v1',
+        model: 'm',
+      );
+      final text = await AiClient().complete(
+        config: config,
+        apiKey: 'sk-test',
+        systemPrompt: 'system',
+        messages: [
+          AiMessage(
+            role: 'user',
+            content: '看看这张照片',
+            imagePaths: [image.path],
+          ),
+        ],
+      );
+      expect(text, '看到了');
+    } finally {
+      await server?.close(force: true);
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('Anthropic image message uses base64 source blocks', () async {
+    final dir = await Directory.systemTemp.createTemp('mypet-ai-test');
+    final image = File('${dir.path}/photo.jpg');
+    await image.writeAsBytes([255, 216, 255, 1]);
+    HttpServer? server;
+    try {
+      server = await startServer((request) async {
+        final body = jsonDecode(await utf8.decoder.bind(request).join());
+        final content = body['messages'][0]['content'];
+        expect(content, isA<List>());
+        expect(content[0]['type'], 'image');
+        expect(content[0]['source']['type'], 'base64');
+        expect(content[0]['source']['media_type'], 'image/jpeg');
+        expect(content[1]['type'], 'text');
+        writeSse(request.response, [
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"收到"}}\n\n',
+          'data: {"type":"message_stop"}\n\n',
+        ]);
+      });
+      final config = AiProviderConfig(
+        id: 'anthropic',
+        name: 'anthropic',
+        kind: 'anthropic',
+        baseUrl: 'http://127.0.0.1:${server.port}',
+        model: 'claude-test',
+      );
+      final text = await AiClient().complete(
+        config: config,
+        apiKey: 'sk-ant',
+        systemPrompt: 'system',
+        messages: [
+          AiMessage(
+            role: 'user',
+            content: '看看这张照片',
+            imagePaths: [image.path],
+          ),
+        ],
+      );
+      expect(text, '收到');
+    } finally {
+      await server?.close(force: true);
+      await dir.delete(recursive: true);
+    }
+  });
+
   test('HTTP errors surface provider message', () async {
     final server = await startServer((request) async {
       request.response.statusCode = 401;

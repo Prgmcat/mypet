@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -16,12 +17,17 @@ class AiException implements Exception {
 }
 
 class AiMessage {
-  const AiMessage({required this.role, required this.content});
+  const AiMessage({
+    required this.role,
+    required this.content,
+    this.imagePaths = const [],
+  });
 
   final String role; // user | assistant
   final String content;
 
-  Map<String, String> toJson() => {'role': role, 'content': content};
+  /// Local files attached to this message (user messages only).
+  final List<String> imagePaths;
 }
 
 class AiClient {
@@ -95,6 +101,10 @@ class AiClient {
     required List<AiMessage> messages,
     CancelToken? cancelToken,
   }) async* {
+    final payloadMessages = <Map<String, dynamic>>[];
+    for (final message in messages) {
+      payloadMessages.add(await _openAiMessage(message));
+    }
     final response = await _dio.post<ResponseBody>(
       '$base/chat/completions',
       data: jsonEncode({
@@ -103,7 +113,7 @@ class AiClient {
         'temperature': 0.4,
         'messages': [
           {'role': 'system', 'content': systemPrompt},
-          ...messages.map((m) => m.toJson()),
+          ...payloadMessages,
         ],
       }),
       options: Options(
@@ -142,6 +152,10 @@ class AiClient {
     required List<AiMessage> messages,
     CancelToken? cancelToken,
   }) async* {
+    final payloadMessages = <Map<String, dynamic>>[];
+    for (final message in messages) {
+      payloadMessages.add(await _anthropicMessage(message));
+    }
     final response = await _dio.post<ResponseBody>(
       '$base/v1/messages',
       data: jsonEncode({
@@ -149,7 +163,7 @@ class AiClient {
         'max_tokens': 1024,
         'system': systemPrompt,
         'stream': true,
-        'messages': messages.map((m) => m.toJson()).toList(),
+        'messages': payloadMessages,
       }),
       options: Options(
         responseType: ResponseType.stream,
@@ -220,6 +234,65 @@ class AiClient {
       }
       throw AiException(_networkMessage(e));
     }
+  }
+
+  Future<Map<String, dynamic>> _openAiMessage(AiMessage message) async {
+    if (message.imagePaths.isEmpty) {
+      return {'role': message.role, 'content': message.content};
+    }
+    final parts = <Map<String, dynamic>>[];
+    if (message.content.trim().isNotEmpty) {
+      parts.add({'type': 'text', 'text': message.content});
+    }
+    for (final path in message.imagePaths) {
+      final data = base64Encode(await _readImage(path));
+      final mime = _mimeFor(path);
+      parts.add({
+        'type': 'image_url',
+        'image_url': {'url': 'data:$mime;base64,$data'},
+      });
+    }
+    return {'role': message.role, 'content': parts};
+  }
+
+  Future<Map<String, dynamic>> _anthropicMessage(AiMessage message) async {
+    if (message.imagePaths.isEmpty) {
+      return {'role': message.role, 'content': message.content};
+    }
+    final parts = <Map<String, dynamic>>[];
+    for (final path in message.imagePaths) {
+      final data = base64Encode(await _readImage(path));
+      parts.add({
+        'type': 'image',
+        'source': {
+          'type': 'base64',
+          'media_type': _mimeFor(path),
+          'data': data,
+        },
+      });
+    }
+    if (message.content.trim().isNotEmpty) {
+      parts.add({'type': 'text', 'text': message.content});
+    }
+    return {'role': message.role, 'content': parts};
+  }
+
+  Future<Uint8List> _readImage(String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      if (bytes.isEmpty) throw const FormatException('empty');
+      return bytes;
+    } catch (_) {
+      throw AiException('无法读取图片文件，请重新选择：$path');
+    }
+  }
+
+  static String _mimeFor(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
   }
 
   Future<ResponseBody> _checkedBody(Response<ResponseBody> response) async {

@@ -46,6 +46,7 @@ class AiStoredMessage {
     this.feedback = 0,
     this.createdAt = '',
     this.captures = const [],
+    this.images = const [],
   });
 
   final String role;
@@ -54,6 +55,9 @@ class AiStoredMessage {
   int feedback; // 0 none, 1 useful, -1 not useful
   final String createdAt;
   List<AiCapture> captures;
+
+  /// Local paths of images attached to this message.
+  final List<String> images;
 
   bool get isCapture => role == 'capture';
 
@@ -65,6 +69,7 @@ class AiStoredMessage {
         'createdAt': createdAt,
         if (captures.isNotEmpty)
           'captures': captures.map((c) => c.toJson()).toList(),
+        if (images.isNotEmpty) 'images': images,
       };
 
   factory AiStoredMessage.fromJson(Map<String, dynamic> json) =>
@@ -76,6 +81,9 @@ class AiStoredMessage {
         createdAt: (json['createdAt'] as String?) ?? '',
         captures: ((json['captures'] as List?) ?? const [])
             .map((e) => AiCapture.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        images: ((json['images'] as List?) ?? const [])
+            .whereType<String>()
             .toList(),
       );
 }

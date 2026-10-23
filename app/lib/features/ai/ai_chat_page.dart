@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../../core/ai/ai_capture.dart';
@@ -13,6 +15,7 @@ import '../../core/ai/ai_config.dart';
 import '../../core/ai/ai_safety.dart';
 import '../../core/ai/ai_sessions.dart';
 import '../../core/api_client.dart';
+import '../../core/chat_images.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
 import '../records/record_form_page.dart';
@@ -56,6 +59,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   CancelToken? _cancelToken;
   bool _showRedCard = false;
   List<CaptureEvent> _pendingCaptures = const [];
+  final List<String> _pendingImages = [];
+  bool _pickingImages = false;
 
   bool get _isGlobal => widget.global;
   String get _userId => ref.read(sessionProvider).user?.id ?? 'anonymous';
@@ -78,6 +83,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   @override
   void dispose() {
     _cancelToken?.cancel();
+    for (final path in _pendingImages) {
+      ChatImages.delete(path);
+    }
     _input.dispose();
     _scroll.dispose();
     _speech.stop();
@@ -222,17 +230,25 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _send({String? retryText}) async {
+  Future<void> _send({String? retryText, List<String>? retryImages}) async {
     if (_sending) return;
-    final isRetry = retryText != null;
+    final isRetry = retryText != null || retryImages != null;
     final text = (retryText ?? _input.text).trim();
-    if (text.isEmpty) return;
+    final images = isRetry
+        ? List<String>.from(retryImages ?? const [])
+        : List<String>.from(_pendingImages);
+    if (text.isEmpty && images.isEmpty) return;
     if (_config == null || _apiKey.isEmpty) {
       _snack('还没有可用的 AI 服务，请先在设置中配置 Key');
       await _openSettings();
       return;
     }
+    if (images.isNotEmpty && _config?.supportsVision != true) {
+      _snack('当前服务商未开启视觉能力，请在 AI 设置中开启或切换支持图片的模型');
+      return;
+    }
     _input.clear();
+    if (!isRetry) _pendingImages.clear();
     setState(() {
       _sending = true;
       _error = null;
@@ -248,11 +264,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       content: text,
       riskLevel: 'l${risk.level.index}',
       createdAt: DateTime.now().toIso8601String(),
+      images: images,
     );
     _session.messages.add(userMessage);
     if (_session.title == '新对话') {
-      _session.title =
-          text.length > 18 ? '${text.substring(0, 18)}…' : text;
+      _session.title = text.isNotEmpty
+          ? (text.length > 18 ? '${text.substring(0, 18)}…' : text)
+          : '图片咨询';
     }
     await AiSessionStore.upsert(_userId, _session);
     _scrollToBottom();
@@ -276,9 +294,19 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         .where((m) => m.role == 'user' || m.role == 'assistant')
         .toList();
     final start = history.length > 20 ? history.length - 20 : 0;
+    final recent = history.sublist(start);
+    var lastUserIndex = -1;
+    for (var i = 0; i < recent.length; i++) {
+      if (recent[i].role == 'user') lastUserIndex = i;
+    }
     final messages = [
-      for (final m in history.sublist(start))
-        AiMessage(role: m.role, content: m.content),
+      for (var i = 0; i < recent.length; i++)
+        AiMessage(
+          role: recent[i].role,
+          content: recent[i].content,
+          imagePaths:
+              i == lastUserIndex ? recent[i].images : const <String>[],
+        ),
     ];
     final buffer = StringBuffer();
     _cancelToken = CancelToken();
@@ -499,12 +527,15 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       (m) => m.role == 'user',
       orElse: () => AiStoredMessage(role: 'user', content: ''),
     );
-    if (lastUser.content.isEmpty) return;
+    if (lastUser.content.isEmpty && lastUser.images.isEmpty) return;
     if (_session.messages.isNotEmpty &&
         _session.messages.last.role == 'assistant') {
       _session.messages.removeLast();
     }
-    await _send(retryText: lastUser.content);
+    await _send(
+      retryText: lastUser.content,
+      retryImages: lastUser.images,
+    );
   }
 
   Future<void> _toggleVoice() async {
@@ -545,6 +576,76 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       listenMode: ListenMode.dictation,
     );
     if (mounted) setState(() => _listening = true);
+  }
+
+  Future<void> _pickImages() async {
+    if (_pickingImages) return;
+    final config = _config;
+    if (config == null) {
+      _snack('请先配置 AI 服务');
+      await _openSettings();
+      return;
+    }
+    if (!config.supportsVision) {
+      _snack('当前服务商未开启视觉能力，请在 AI 设置中开启或切换支持图片的模型');
+      return;
+    }
+    if (_pendingImages.length >= 4) {
+      _snack('每条消息最多 4 张图片');
+      return;
+    }
+    setState(() => _pickingImages = true);
+    try {
+      final picked = await ImagePicker().pickMultiImage(
+        imageQuality: 80,
+        maxWidth: 1920,
+      );
+      for (final file in picked) {
+        if (_pendingImages.length >= 4) break;
+        final path = await ChatImages.persist(file.path);
+        _pendingImages.add(path);
+      }
+      if (!mounted) return;
+      setState(() {});
+    } catch (e) {
+      _snack('选择图片失败：$e');
+    } finally {
+      if (mounted) setState(() => _pickingImages = false);
+    }
+  }
+
+  void _removePendingImage(String path) {
+    setState(() => _pendingImages.remove(path));
+    ChatImages.delete(path);
+  }
+
+  void _viewImage(String path) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: InteractiveViewer(
+                child: Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Text('图片已不存在'),
+                  ),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _switchPet(Pet pet) async {
@@ -1014,6 +1115,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               ),
             ),
           if (_pendingCaptures.isNotEmpty) _pendingCaptureCard(),
+          if (_pendingImages.isNotEmpty) _pendingImagesStrip(),
           SafeArea(
             top: false,
             child: Padding(
@@ -1021,6 +1123,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    onPressed: _pickingImages ? null : _pickImages,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    tooltip: '发送图片',
+                  ),
                   IconButton(
                     onPressed: _toggleVoice,
                     icon: Icon(_listening ? Icons.mic : Icons.mic_none),
@@ -1058,6 +1165,60 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _pendingImagesStrip() {
+    return SizedBox(
+      height: 86,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        itemCount: _pendingImages.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final path = _pendingImages[index];
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              GestureDetector(
+                onTap: () => _viewImage(path),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(
+                    File(path),
+                    width: 76,
+                    height: 76,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 76,
+                      height: 76,
+                      color: const Color(0xFFF1E4D8),
+                      child: const Icon(Icons.broken_image, size: 20),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: -4,
+                right: -4,
+                child: GestureDetector(
+                  onTap: () => _removePendingImage(path),
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF2F2A26),
+                      shape: BoxShape.circle,
+                    ),
+                    padding: const EdgeInsets.all(2),
+                    child: const Icon(Icons.close,
+                        size: 14, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1245,22 +1406,55 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     padding: const EdgeInsets.only(bottom: 4),
                     child: _riskChip(risk),
                   ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isUser ? const Color(0xFF8B5E3C) : Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    message.content,
-                    style: TextStyle(
-                      color: isUser ? Colors.white : Colors.black87,
-                      height: 1.5,
-                      fontSize: 14,
+                if (message.images.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      alignment:
+                          isUser ? WrapAlignment.end : WrapAlignment.start,
+                      children: [
+                        for (final path in message.images)
+                          GestureDetector(
+                            onTap: () => _viewImage(path),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.file(
+                                File(path),
+                                width: 120,
+                                height: 120,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Container(
+                                  width: 120,
+                                  height: 120,
+                                  color: const Color(0xFFF1E4D8),
+                                  child: const Icon(Icons.broken_image,
+                                      size: 24, color: Colors.black38),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
+                if (message.content.isNotEmpty)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isUser ? const Color(0xFF8B5E3C) : Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      message.content,
+                      style: TextStyle(
+                        color: isUser ? Colors.white : Colors.black87,
+                        height: 1.5,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
                 if (!isUser)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),

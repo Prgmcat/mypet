@@ -80,6 +80,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     final name = TextEditingController(text: config.name);
     final key = TextEditingController();
     var makeDefault = config.isDefault || _configured.isEmpty;
+    var supportsVision = config.supportsVision;
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
@@ -132,6 +133,14 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
+                    title: const Text('支持图片输入（视觉）'),
+                    subtitle: const Text('开启后可在对话中发送照片'),
+                    value: supportsVision,
+                    onChanged: (v) =>
+                        setDialogState(() => supportsVision = v),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
                     title: const Text('设为当前使用'),
                     value: makeDefault,
                     onChanged: (v) => setDialogState(() => makeDefault = v),
@@ -168,6 +177,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
           name: name.text.trim(),
           baseUrl: baseUrl.text.trim(),
           model: model.text.trim(),
+          supportsVision: supportsVision,
         );
         var list = _configs
             .map((c) => c.id == config.id ? updatedConfig : c)
@@ -292,6 +302,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     final model = TextEditingController();
     final key = TextEditingController();
     var kind = 'openai';
+    var supportsVision = false;
     final formKey = GlobalKey<FormState>();
     final ok = await showDialog<bool>(
       context: context,
@@ -348,6 +359,13 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? '请输入 API Key' : null,
                   ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('支持图片输入（视觉）'),
+                    value: supportsVision,
+                    onChanged: (v) =>
+                        setDialogState(() => supportsVision = v),
+                  ),
                 ],
               ),
             ),
@@ -376,6 +394,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
         baseUrl: baseUrl.text.trim(),
         model: model.text.trim(),
         isDefault: _configured.isEmpty,
+        supportsVision: supportsVision,
       );
       await AiConfigStore.setApiKey(_userId, config.id, key.text.trim());
       await AiConfigStore.save(_userId, [..._configs, config]);
