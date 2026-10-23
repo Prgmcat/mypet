@@ -24,6 +24,7 @@ class _TimelinePageState extends ConsumerState<TimelinePage> {
     'medical': '病历',
     'medication': '用药',
     'grooming': '洗护',
+    'diet': '饮食',
     'weight': '体重',
   };
 
@@ -242,6 +243,7 @@ class _TimelinePageState extends ConsumerState<TimelinePage> {
         'medical' => '📋',
         'medication' => '💊',
         'grooming' => '🛁',
+        'diet' => '🍚',
         _ => '📝',
       };
 }

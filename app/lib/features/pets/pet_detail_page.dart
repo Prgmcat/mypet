@@ -577,6 +577,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       'medical' => '📋',
       'medication' => '💊',
       'grooming' => '🛁',
+      'diet' => '🍚',
       _ => '📝',
     };
   }

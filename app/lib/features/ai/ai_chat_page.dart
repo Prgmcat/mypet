@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../../core/ai/ai_capture.dart';
 import '../../core/ai/ai_client.dart';
 import '../../core/ai/ai_config.dart';
 import '../../core/ai/ai_safety.dart';
@@ -20,25 +21,29 @@ import 'ai_settings_page.dart';
 class AiChatPage extends ConsumerStatefulWidget {
   const AiChatPage({
     super.key,
-    required this.pet,
+    this.pet,
     this.session,
+    this.global = false,
   });
 
-  final Pet pet;
+  /// Focused pet for the per-pet entry; null for the account-wide assistant.
+  final Pet? pet;
   final AiSession? session;
+  final bool global;
 
   @override
   ConsumerState<AiChatPage> createState() => _AiChatPageState();
 }
 
 class _AiChatPageState extends ConsumerState<AiChatPage> {
-  late Pet _pet = widget.pet;
+  late Pet? _pet = widget.pet;
   late AiSession _session = widget.session ?? _newSession(widget.pet);
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _speech = SpeechToText();
 
   List<Pet> _pets = const [];
+  List<PetProfileContext> _contexts = const [];
   List<HealthRecord> _records = const [];
   List<WeightRecord> _weights = const [];
   List<AiProviderConfig> _providers = const [];
@@ -50,13 +55,15 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   String? _error;
   CancelToken? _cancelToken;
   bool _showRedCard = false;
+  List<CaptureEvent> _pendingCaptures = const [];
 
+  bool get _isGlobal => widget.global;
   String get _userId => ref.read(sessionProvider).user?.id ?? 'anonymous';
 
-  static AiSession _newSession(Pet pet) => AiSession(
+  static AiSession _newSession(Pet? pet) => AiSession(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
-        petId: pet.id,
-        petName: pet.name,
+        petId: pet?.id ?? '',
+        petName: pet?.name ?? '全部宠物',
         title: '新对话',
         updatedAt: DateTime.now().toIso8601String(),
         messages: [],
@@ -80,14 +87,19 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   Future<void> _bootstrap() async {
     try {
       final api = ref.read(apiClientProvider);
-      final results = await Future.wait([
-        api.listPets(),
-        api.listRecords(_pet.id),
-        api.listWeights(_pet.id),
-      ]);
-      _pets = results[0] as List<Pet>;
-      _records = results[1] as List<HealthRecord>;
-      _weights = results[2] as List<WeightRecord>;
+      final pets = await api.listPets();
+      _pets = pets;
+      final focused = _pet;
+      if (_isGlobal || focused == null) {
+        _contexts = await _loadContexts(api, pets);
+      } else {
+        final contexts = await _loadContexts(api, [focused]);
+        _contexts = contexts;
+        if (contexts.isNotEmpty) {
+          _records = contexts.first.records;
+          _weights = contexts.first.weights;
+        }
+      }
     } catch (_) {
       // Context is best-effort; chat can still work without it.
     }
@@ -95,6 +107,33 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (!mounted) return;
     setState(() {});
     _scrollToBottom();
+  }
+
+  Future<List<PetProfileContext>> _loadContexts(
+    ApiClient api,
+    List<Pet> pets,
+  ) async {
+    final contexts = <PetProfileContext>[];
+    for (final pet in pets.take(6)) {
+      try {
+        final results = await Future.wait([
+          api.listRecords(pet.id),
+          api.listWeights(pet.id),
+        ]);
+        contexts.add(PetProfileContext(
+          pet: pet,
+          records: results[0] as List<HealthRecord>,
+          weights: results[1] as List<WeightRecord>,
+        ));
+      } catch (_) {
+        contexts.add(PetProfileContext(
+          pet: pet,
+          records: const [],
+          weights: const [],
+        ));
+      }
+    }
+    return contexts;
   }
 
   Future<void> _loadConfig() async {
@@ -148,12 +187,17 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   Future<void> _reloadContext() async {
     try {
       final api = ref.read(apiClientProvider);
-      final results = await Future.wait([
-        api.listRecords(_pet.id),
-        api.listWeights(_pet.id),
-      ]);
-      _records = results[0] as List<HealthRecord>;
-      _weights = results[1] as List<WeightRecord>;
+      final focused = _pet;
+      if (_isGlobal || focused == null) {
+        _contexts = await _loadContexts(api, _pets);
+      } else {
+        final contexts = await _loadContexts(api, [focused]);
+        _contexts = contexts;
+        if (contexts.isNotEmpty) {
+          _records = contexts.first.records;
+          _weights = contexts.first.weights;
+        }
+      }
     } catch (_) {
       // Ignore.
     }
@@ -180,6 +224,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   Future<void> _send({String? retryText}) async {
     if (_sending) return;
+    final isRetry = retryText != null;
     final text = (retryText ?? _input.text).trim();
     if (text.isEmpty) return;
     if (_config == null || _apiKey.isEmpty) {
@@ -212,11 +257,21 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     await AiSessionStore.upsert(_userId, _session);
     _scrollToBottom();
 
-    final system = buildSystemPrompt(
-      pet: _pet,
-      records: _records,
-      weights: _weights,
-    );
+    String system;
+    if (_isGlobal) {
+      system = buildGlobalSystemPrompt(_contexts);
+    } else if (_pet != null) {
+      system = buildSystemPrompt(
+        pet: _pet!,
+        records: _records,
+        weights: _weights,
+      );
+    } else if (_contexts.isNotEmpty) {
+      system = buildGlobalSystemPrompt(_contexts);
+    } else {
+      system = '你是宠物照护助手。用中文简洁回答，不确诊、不开药、不给剂量；'
+          '紧急症状建议立即就医，并说明 AI 不能替代兽医面诊。';
+    }
     final history = _session.messages
         .where((m) => m.role == 'user' || m.role == 'assistant')
         .toList();
@@ -227,6 +282,33 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     ];
     final buffer = StringBuffer();
     _cancelToken = CancelToken();
+
+    // Capture facts from the user's own words. Local rules are deterministic
+    // and free; the model is only asked when local rules found nothing.
+    final capturePets =
+        _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
+    final localCaptures =
+        isRetry ? <CaptureEvent>[] : parseLocalCaptures(text, capturePets);
+    Future<List<CaptureEvent>>? fallbackCaptures;
+    if (!isRetry &&
+        localCaptures.isEmpty &&
+        looksRecordWorthy(text) &&
+        _config != null) {
+      fallbackCaptures = () async {
+        try {
+          return await extractCapturesWithAi(
+            client: AiClient(),
+            config: _config!,
+            apiKey: _apiKey,
+            pets: capturePets,
+            text: text,
+            cancelToken: _cancelToken,
+          );
+        } catch (_) {
+          return <CaptureEvent>[];
+        }
+      }();
+    }
     try {
       await for (final delta in AiClient().stream(
         config: _config!,
@@ -270,6 +352,114 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       _fail(e.message);
     } catch (_) {
       _fail('AI 请求失败，请检查网络或模型配置');
+    } finally {
+      if (!isRetry) {
+        await _handleCaptures(text, localCaptures, fallbackCaptures);
+      }
+    }
+  }
+
+  Future<void> _handleCaptures(
+    String text,
+    List<CaptureEvent> local,
+    Future<List<CaptureEvent>>? fallback,
+  ) async {
+    var events = local;
+    if (events.isEmpty && fallback != null) {
+      try {
+        events = await fallback;
+      } catch (_) {
+        events = const [];
+      }
+    }
+    if (events.isEmpty) return;
+    final pets = _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
+    final resolved = <CaptureEvent>[];
+    final pending = <CaptureEvent>[];
+    for (final event in events) {
+      if (event.petId.isNotEmpty) {
+        resolved.add(event);
+      } else if (pets.length == 1) {
+        event.petId = pets.first.id;
+        event.petName = pets.first.name;
+        resolved.add(event);
+      } else {
+        pending.add(event);
+      }
+    }
+    final api = ref.read(apiClientProvider);
+    final captures = <AiCapture>[];
+    for (final event in resolved) {
+      try {
+        captures.add(await applyCapture(api, event));
+      } catch (e) {
+        _snack('自动记录失败：$e');
+      }
+    }
+    if (captures.isNotEmpty) {
+      _session.messages.add(AiStoredMessage(
+        role: 'capture',
+        content: '已自动记录',
+        captures: captures,
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+      await AiSessionStore.upsert(_userId, _session);
+      if (mounted) await _reloadContext();
+    }
+    if (!mounted) return;
+    setState(() => _pendingCaptures = pending);
+    _scrollToBottom();
+  }
+
+  Future<void> _applyPendingTo(Pet pet) async {
+    final events = _pendingCaptures;
+    if (events.isEmpty) return;
+    setState(() => _pendingCaptures = const []);
+    final api = ref.read(apiClientProvider);
+    final captures = <AiCapture>[];
+    for (final event in events) {
+      event.petId = pet.id;
+      event.petName = pet.name;
+      try {
+        captures.add(await applyCapture(api, event));
+      } catch (e) {
+        _snack('自动记录失败：$e');
+      }
+    }
+    if (captures.isNotEmpty) {
+      _session.messages.add(AiStoredMessage(
+        role: 'capture',
+        content: '已自动记录',
+        captures: captures,
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+      await AiSessionStore.upsert(_userId, _session);
+      if (mounted) {
+        await _reloadContext();
+        setState(() {});
+      }
+      _scrollToBottom();
+    }
+  }
+
+  Future<void> _undoCaptures(AiStoredMessage message) async {
+    final api = ref.read(apiClientProvider);
+    var changed = false;
+    for (final capture in message.captures) {
+      if (capture.undone) continue;
+      try {
+        await undoCapture(api, capture);
+        capture.undone = true;
+        changed = true;
+      } catch (e) {
+        _snack('撤销失败：$e');
+      }
+    }
+    if (!changed) return;
+    await AiSessionStore.upsert(_userId, _session);
+    if (mounted) {
+      await _reloadContext();
+      setState(() {});
     }
   }
 
@@ -358,7 +548,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Future<void> _switchPet(Pet pet) async {
-    if (pet.id == _pet.id) return;
+    if (_pet != null && pet.id == _pet!.id) return;
     setState(() {
       _pet = pet;
       _session = _newSession(pet);
@@ -390,7 +580,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             const Divider(height: 1),
             if (sessions.isEmpty)
               const ListTile(enabled: false, title: Text('还没有历史会话')),
-            for (final session in sessions)
+            for (final session in sessions.where(
+                (s) => _isGlobal || s.petId == _pet?.id))
               ListTile(
                 leading: const Icon(Icons.chat_bubble_outline),
                 title: Text(session.title, maxLines: 1),
@@ -407,13 +598,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 ),
                 onTap: () async {
                   Navigator.pop(context);
-                  final pet = _pets.firstWhere(
-                    (p) => p.id == session.petId,
-                    orElse: () => _pet,
-                  );
+                  Pet? matched;
+                  for (final p in _pets) {
+                    if (p.id == session.petId) matched = p;
+                  }
                   setState(() {
                     _session = session;
-                    _pet = pet;
+                    _pet = matched;
                   });
                   await _reloadContext();
                   if (mounted) setState(() {});
@@ -426,6 +617,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Future<void> _extractRecord() async {
+    final pet = _pet;
+    if (pet == null) {
+      _snack('请从宠物详情进入再使用记录草稿');
+      return;
+    }
     if (_config == null || _apiKey.isEmpty) {
       _snack('请先配置 AI 服务');
       return;
@@ -443,7 +639,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       final raw = await AiClient().complete(
         config: _config!,
         apiKey: _apiKey,
-        systemPrompt: buildRecordExtractionPrompt(_pet),
+        systemPrompt: buildRecordExtractionPrompt(pet),
         messages: [
           AiMessage(role: 'user', content: conversation),
         ],
@@ -508,6 +704,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Future<void> _confirmDraft(Map<String, dynamic> draft) async {
+    final pet = _pet;
+    if (pet == null) return;
     final type = draft['type'] as String;
     final payload = (draft['payload'] as Map?)?.cast<String, dynamic>() ?? {};
     final ok = await showDialog<bool>(
@@ -556,7 +754,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     );
     if (ok != true) return;
     try {
-      await ref.read(apiClientProvider).createRecord(_pet.id, {
+      await ref.read(apiClientProvider).createRecord(pet.id, {
         'type': type,
         'occurredAt': draft['occurredAt'],
         'title': draft['title'],
@@ -576,8 +774,10 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   void _openManualRecord() {
+    final pet = _pet;
+    if (pet == null) return;
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => RecordFormPage(pet: _pet)),
+      MaterialPageRoute(builder: (_) => RecordFormPage(pet: pet)),
     );
   }
 
@@ -588,6 +788,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         'medical' => '病历',
         'medication' => '用药',
         'grooming' => '洗护',
+        'diet' => '饮食',
         _ => '其他',
       };
 
@@ -641,9 +842,12 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('AI 助手', style: TextStyle(fontSize: 16)),
             Text(
-              '当前宠物：${_pet.name}',
+              _isGlobal ? 'AI 助手' : 'AI 助手 · ${_pet?.name ?? ''}',
+              style: const TextStyle(fontSize: 16),
+            ),
+            Text(
+              _isGlobal ? '直接说，我会顺手帮你记录' : '当前宠物：${_pet?.name ?? ''}',
               style: const TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ],
@@ -694,7 +898,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               ),
             ],
           ),
-          if (_pets.length > 1)
+          if (!_isGlobal && _pets.length > 1)
             IconButton(
               tooltip: '切换宠物',
               icon: const Icon(Icons.pets),
@@ -800,7 +1004,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     ],
                   ),
           ),
-          if (_session.messages.isNotEmpty)
+          if (_session.messages.isNotEmpty && !_isGlobal && _pet != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: TextButton.icon(
@@ -809,6 +1013,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 label: const Text('把这段对话转成记录草稿'),
               ),
             ),
+          if (_pendingCaptures.isNotEmpty) _pendingCaptureCard(),
           SafeArea(
             top: false,
             child: Padding(
@@ -857,11 +1062,65 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     );
   }
 
+  Widget _pendingCaptureCard() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFEAD9B5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '检测到可以记录的内容，要记到哪只宠物？',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _pendingCaptures.map((e) => e.label).join('、'),
+            style: const TextStyle(fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final pet in _pets)
+                FilledButton.tonal(
+                  onPressed: () => _applyPendingTo(pet),
+                  child: Text(pet.name),
+                ),
+              TextButton(
+                onPressed: () =>
+                    setState(() => _pendingCaptures = const []),
+                child: const Text('忽略'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _emptyState() {
+    final prompts = _isGlobal
+        ? const [
+            '咪咪今天拉稀了',
+            '咪咪 5.2 公斤了',
+            '今天给咪咪换了新猫粮，看看这个配方',
+          ]
+        : const [
+            '最近食欲下降，需要观察什么？',
+            '下次驱虫是什么时候？',
+            '带它出门需要注意什么？',
+          ];
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
         const Text(
           '🐾',
           textAlign: TextAlign.center,
@@ -869,23 +1128,23 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         ),
         const SizedBox(height: 12),
         Text(
-          '咨询「${_pet.name}」的照护问题',
+          _isGlobal ? '直接说，我帮你记' : '咨询「${_pet?.name ?? ''}」的照护问题',
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
-        const Text(
-          '回答会结合宠物档案（年龄、品种、疫苗、体重、病史）。\n'
-          'AI 不能替代兽医面诊，也不会给出药物剂量。',
+        Text(
+          _isGlobal
+              ? '回答会结合账号下所有宠物的档案。\n'
+                  '你陈述的体重、症状、换粮会自动写进对应宠物的记录，'
+                  '并可以在卡片上撤销。'
+              : '回答会结合宠物档案（年龄、品种、疫苗、体重、病史）。\n'
+                  '你陈述的体重、症状、换粮也会自动记录。',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
+          style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
         ),
-        const SizedBox(height: 24),
-        for (final prompt in const [
-          '最近食欲下降，需要观察什么？',
-          '下次驱虫是什么时候？',
-          '带它出门需要注意什么？',
-        ])
+        const SizedBox(height: 20),
+        for (final prompt in prompts)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: OutlinedButton(
@@ -901,6 +1160,65 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   Widget _bubble(AiStoredMessage message) {
+    if (message.isCapture) {
+      final active = message.captures.where((c) => !c.undone).toList();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF3E7),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFC9DDC1)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.check_circle_outline,
+                  size: 18, color: Color(0xFF3E6B4F)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '已自动记录',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF3E6B4F),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    for (final capture in message.captures)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          capture.label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: capture.undone
+                                ? Colors.black38
+                                : Colors.black87,
+                            decoration: capture.undone
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (active.isNotEmpty)
+                TextButton(
+                  onPressed: () => _undoCaptures(message),
+                  child: const Text('撤销'),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
     final isUser = message.role == 'user';
     final risk = message.riskLevel;
     return Padding(

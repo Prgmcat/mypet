@@ -76,6 +76,47 @@ func TestShareGrantLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeleteWeightFallsBackToLatest(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newTestStore(t)
+	owner := mustAdmin(t, s)
+	pet, err := s.CreatePet(ctx, owner.ID, PetInput{Name: "Mimi", Species: "cat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.CreateWeight(ctx, pet.ID, owner.ID, WeightInput{MeasuredAt: "2026-09-01", WeightKg: 4.2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateWeight(ctx, pet.ID, owner.ID, WeightInput{MeasuredAt: "2026-10-01", WeightKg: 4.8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.GetPetForUser(ctx, pet.ID, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.CurrentWeightKg != 4.8 {
+		t.Fatalf("expected 4.8, got %v", current.CurrentWeightKg)
+	}
+	if _, err := s.DeleteWeight(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.GetPetForUser(ctx, pet.ID, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.CurrentWeightKg != 4.2 {
+		t.Fatalf("expected fallback 4.2, got %v", current.CurrentWeightKg)
+	}
+	if _, err := s.DeleteWeight(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DeleteWeight(ctx, first.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected not found on second delete, got %v", err)
+	}
+}
+
 func TestShareGrantRejectsInvalidRole(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore(t)

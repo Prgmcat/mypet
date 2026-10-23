@@ -2,6 +2,42 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+class AiCapture {
+  AiCapture({
+    required this.kind,
+    required this.id,
+    required this.petId,
+    required this.petName,
+    required this.label,
+    this.undone = false,
+  });
+
+  final String kind; // weight | record
+  final String id;
+  final String petId;
+  final String petName;
+  final String label;
+  bool undone;
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind,
+        'id': id,
+        'petId': petId,
+        'petName': petName,
+        'label': label,
+        'undone': undone,
+      };
+
+  factory AiCapture.fromJson(Map<String, dynamic> json) => AiCapture(
+        kind: (json['kind'] as String?) ?? 'record',
+        id: (json['id'] as String?) ?? '',
+        petId: (json['petId'] as String?) ?? '',
+        petName: (json['petName'] as String?) ?? '',
+        label: (json['label'] as String?) ?? '',
+        undone: json['undone'] == true,
+      );
+}
+
 class AiStoredMessage {
   AiStoredMessage({
     required this.role,
@@ -9,6 +45,7 @@ class AiStoredMessage {
     this.riskLevel = '',
     this.feedback = 0,
     this.createdAt = '',
+    this.captures = const [],
   });
 
   final String role;
@@ -16,6 +53,9 @@ class AiStoredMessage {
   final String riskLevel; // '', 'l1', 'l2', 'l3'
   int feedback; // 0 none, 1 useful, -1 not useful
   final String createdAt;
+  List<AiCapture> captures;
+
+  bool get isCapture => role == 'capture';
 
   Map<String, dynamic> toJson() => {
         'role': role,
@@ -23,6 +63,8 @@ class AiStoredMessage {
         'riskLevel': riskLevel,
         'feedback': feedback,
         'createdAt': createdAt,
+        if (captures.isNotEmpty)
+          'captures': captures.map((c) => c.toJson()).toList(),
       };
 
   factory AiStoredMessage.fromJson(Map<String, dynamic> json) =>
@@ -32,6 +74,9 @@ class AiStoredMessage {
         riskLevel: (json['riskLevel'] as String?) ?? '',
         feedback: (json['feedback'] as num?)?.toInt() ?? 0,
         createdAt: (json['createdAt'] as String?) ?? '',
+        captures: ((json['captures'] as List?) ?? const [])
+            .map((e) => AiCapture.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 }
 

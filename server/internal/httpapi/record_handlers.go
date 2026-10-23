@@ -217,6 +217,30 @@ func (s *Server) createWeight(w http.ResponseWriter, r *http.Request) {
 	writeData(w, r, http.StatusCreated, weight)
 }
 
+func (s *Server) deleteWeight(w http.ResponseWriter, r *http.Request) {
+	weightID := chi.URLParam(r, "weightID")
+	weight, err := s.store.GetWeight(r.Context(), weightID)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	pet, err := s.store.GetPetForUser(r.Context(), weight.PetID, currentUser(r).ID)
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	if pet.Role == "viewer" || (pet.Role == "co_caregiver" && weight.CreatedByUserID != currentUser(r).ID) {
+		writeError(w, r, http.StatusForbidden, 30007, "no permission to delete this weight record")
+		return
+	}
+	if _, err := s.store.DeleteWeight(r.Context(), weightID); err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	s.store.Audit(r.Context(), "user", currentUser(r).ID, "delete_weight", "weight", weightID, "{}")
+	writeData(w, r, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	pet, ok := s.requireRecordWrite(w, r)
 	if !ok {
@@ -372,7 +396,7 @@ func validateRecordInput(in *store.RecordInput) error {
 
 func validRecordType(value string) bool {
 	switch value {
-	case "vaccine", "deworming", "checkup", "medical", "medication", "grooming", "other":
+	case "vaccine", "deworming", "checkup", "medical", "medication", "grooming", "diet", "other":
 		return true
 	default:
 		return false

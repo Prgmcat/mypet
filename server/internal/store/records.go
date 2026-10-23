@@ -159,6 +159,44 @@ func (s *Store) CreateWeightAs(ctx context.Context, petID string, in WeightInput
 	}, nil
 }
 
+func (s *Store) GetWeight(ctx context.Context, id string) (WeightRecord, error) {
+	var w WeightRecord
+	var userID sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT id, pet_id, measured_at, weight_kg, note, created_by_type,
+		created_by_user_id, created_at FROM weight_records WHERE id = ?`, id).
+		Scan(&w.ID, &w.PetID, &w.MeasuredAt, &w.WeightKg, &w.Note, &w.CreatedByType, &userID, &w.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WeightRecord{}, ErrNotFound
+	}
+	if err != nil {
+		return WeightRecord{}, err
+	}
+	if userID.Valid {
+		w.CreatedByUserID = userID.String
+	}
+	return w, nil
+}
+
+func (s *Store) DeleteWeight(ctx context.Context, id string) (string, error) {
+	var petID string
+	err := s.db.QueryRowContext(ctx, `SELECT pet_id FROM weight_records WHERE id = ?`, id).Scan(&petID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM weight_records WHERE id = ?`, id); err != nil {
+		return "", err
+	}
+	now := db.Now()
+	_, _ = s.db.ExecContext(ctx, `UPDATE pets SET current_weight_kg = (
+		SELECT weight_kg FROM weight_records WHERE pet_id = ?
+		ORDER BY measured_at DESC, created_at DESC LIMIT 1), updated_at = ? WHERE id = ?`,
+		petID, now, petID)
+	return petID, nil
+}
+
 func (s *Store) ListWeights(ctx context.Context, petID string) ([]WeightRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, pet_id, measured_at, weight_kg, note, created_by_type,
 		COALESCE(created_by_user_id, ''), created_at FROM weight_records WHERE pet_id = ? ORDER BY measured_at ASC`, petID)

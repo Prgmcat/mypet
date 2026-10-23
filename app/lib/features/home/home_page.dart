@@ -117,6 +117,13 @@ class _HomePageState extends ConsumerState<HomePage> {
     if (mounted) _load();
   }
 
+  Future<void> _openGlobalAi() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AiChatPage(global: true)),
+    );
+    if (mounted) _load();
+  }
+
   Future<void> _openAi() async {
     final pets = _pets ?? const <Pet>[];
     if (pets.isEmpty) {
@@ -316,6 +323,53 @@ class _HomePageState extends ConsumerState<HomePage> {
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Material(
+            color: const Color(0xFF2F2A26),
+            borderRadius: BorderRadius.circular(18),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: _openGlobalAi,
+              child: const Padding(
+                padding: EdgeInsets.fromLTRB(18, 16, 14, 16),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome,
+                        color: Color(0xFFE8C9A6), size: 28),
+                    SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'AI 助手',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '直接说：咪咪 5 斤了 · 今天拉稀了 · 换了新猫粮\n'
+                            '我会边回答边把有用的信息记进档案',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, color: Colors.white38),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
         if (pets.isEmpty)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 64, horizontal: 24),

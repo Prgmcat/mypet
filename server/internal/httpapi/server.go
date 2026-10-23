@@ -65,6 +65,7 @@ func New(st *store.Store, version string) http.Handler {
 		r.Get("/api/pets/{petID}/timeline", s.timeline)
 		r.Get("/api/pets/{petID}/weights", s.listWeights)
 		r.Post("/api/pets/{petID}/weights", s.createWeight)
+		r.Delete("/api/weights/{weightID}", s.deleteWeight)
 		r.Post("/api/pets/{petID}/attachments", s.uploadAttachment)
 		r.Get("/api/attachments/{attachmentID}", s.downloadAttachment)
 

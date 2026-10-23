@@ -45,6 +45,7 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
     'medical': '病历',
     'medication': '用药',
     'grooming': '洗护',
+    'diet': '饮食',
     'other': '其他',
   };
 
@@ -98,6 +99,7 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
         'medical' => const ['症状', '诊断', '处方', '医嘱'],
         'medication' => const ['药品名称', '剂量', '频次', '起止日期'],
         'grooming' => const ['项目', '门店', '备注', ''],
+        'diet' => const ['品牌/产品', '类型', '份量', '反馈'],
         _ => const ['详情 1', '详情 2', '详情 3', '详情 4'],
       };
 
@@ -122,6 +124,7 @@ class _RecordFormPageState extends ConsumerState<RecordFormPage> {
       'medical' => const ['symptoms', 'diagnosis', 'prescription', 'advice'][index],
       'medication' => const ['product', 'dose', 'frequency', 'period'][index],
       'grooming' => const ['item', 'store', 'note', 'extra'][index],
+      'diet' => const ['product', 'category', 'amount', 'feedback'][index],
       _ => 'field${index + 1}',
     };
   }

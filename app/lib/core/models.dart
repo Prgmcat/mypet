@@ -198,6 +198,7 @@ class HealthRecord {
         'medical' => '病历',
         'medication' => '用药',
         'grooming' => '洗护',
+        'diet' => '饮食',
         _ => '其他',
       };
 

@@ -168,6 +168,10 @@ class ApiClient {
     return WeightRecord.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<void> deleteWeight(String weightId) async {
+    await _delete('/api/weights/$weightId');
+  }
+
   Future<Attachment> uploadAttachment(
     String petId,
     String filePath, {

@@ -106,6 +106,40 @@ RiskAssessment assessRisk(String userText, {String aiText = ''}) {
   );
 }
 
+class PetProfileContext {
+  const PetProfileContext({
+    required this.pet,
+    required this.records,
+    required this.weights,
+  });
+
+  final Pet pet;
+  final List<HealthRecord> records;
+  final List<WeightRecord> weights;
+}
+
+/// System prompt for the account-wide assistant. It knows every pet and must
+/// resolve which one the user is talking about instead of guessing.
+String buildGlobalSystemPrompt(List<PetProfileContext> contexts) {
+  final names = contexts.map((c) => '「${c.pet.name}」').join('、');
+  final buffer = StringBuffer()
+    ..writeln('你是「喵了个咪」宠物照护助手，账号下有多只宠物：$names。')
+    ..writeln('用户可能同时提到多只宠物。先根据名字判断在说哪只；名字不明确时先追问，不要猜。')
+    ..writeln('系统会自动把用户明确陈述的体重、症状、换粮记录进对应宠物档案，'
+        '你负责自然回答和照护建议，不要声称自己保存了数据，也不要指导用户手动录入。')
+    ..writeln();
+  for (final context in contexts) {
+    buffer.writeln('===== ${context.pet.name} 的档案 =====');
+    buffer.writeln(buildSystemPrompt(
+      pet: context.pet,
+      records: context.records,
+      weights: context.weights,
+    ));
+    buffer.writeln();
+  }
+  return buffer.toString();
+}
+
 String buildSystemPrompt({
   required Pet pet,
   required List<HealthRecord> records,
