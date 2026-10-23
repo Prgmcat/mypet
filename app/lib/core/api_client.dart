@@ -20,6 +20,13 @@ class ApiClient {
 
   String get baseUrl => _baseUrl;
 
+  Map<String, String> get authHeaders => {
+        for (final entry in _dio.options.headers.entries)
+          entry.key: entry.value.toString(),
+      };
+
+  String attachmentUrl(String id) => '$_baseUrl/api/attachments/$id';
+
   void configure({required String baseUrl, String? token}) {
     _baseUrl = normalizeBaseUrl(baseUrl);
     _dio.options
@@ -81,6 +88,11 @@ class ApiClient {
     return User.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<Map<String, dynamic>> health() async {
+    final data = await _get('/api/health');
+    return (data as Map<String, dynamic>?) ?? const {};
+  }
+
   Future<User> me() async {
     final data = await _get('/api/me');
     return User.fromJson((data as Map<String, dynamic>)['user'] as Map<String, dynamic>);
@@ -102,6 +114,11 @@ class ApiClient {
         .toList(growable: false);
   }
 
+  Future<Pet> getPet(String id) async {
+    final data = await _get('/api/pets/$id');
+    return Pet.fromJson(data as Map<String, dynamic>);
+  }
+
   Future<Pet> createPet(Map<String, dynamic> payload) async {
     final data = await _post('/api/pets', payload);
     return Pet.fromJson(data as Map<String, dynamic>);
@@ -114,6 +131,203 @@ class ApiClient {
 
   Future<void> deletePet(String id) async {
     await _delete('/api/pets/$id');
+  }
+
+  Future<List<HealthRecord>> listRecords(String petId, {String? type}) async {
+    final data = await _get('/api/pets/$petId/records${type == null || type.isEmpty ? '' : '?type=$type'}');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => HealthRecord.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<HealthRecord> createRecord(String petId, Map<String, dynamic> payload) async {
+    final data = await _post('/api/pets/$petId/records', payload);
+    return HealthRecord.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<HealthRecord> updateRecord(String recordId, Map<String, dynamic> payload) async {
+    final data = await _patch('/api/records/$recordId', payload);
+    return HealthRecord.fromJson((data as Map<String, dynamic>)['record'] as Map<String, dynamic>);
+  }
+
+  Future<void> deleteRecord(String recordId) async {
+    await _delete('/api/records/$recordId');
+  }
+
+  Future<List<WeightRecord>> listWeights(String petId) async {
+    final data = await _get('/api/pets/$petId/weights');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => WeightRecord.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<WeightRecord> createWeight(String petId, Map<String, dynamic> payload) async {
+    final data = await _post('/api/pets/$petId/weights', payload);
+    return WeightRecord.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Attachment> uploadAttachment(
+    String petId,
+    String filePath, {
+    String? recordId,
+  }) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath),
+      if (recordId != null && recordId.isNotEmpty) 'recordId': recordId,
+    });
+    final data = await _request(() => _dio.post('/api/pets/$petId/attachments', data: form));
+    return Attachment.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<TimelineEntry>> listTimeline(String petId, {String? type}) async {
+    final suffix = (type == null || type.isEmpty) ? '' : '?type=$type';
+    final data = await _get('/api/pets/$petId/timeline$suffix');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => TimelineEntry.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<List<Reminder>> listReminders({String status = 'pending'}) async {
+    final data = await _get('/api/reminders?status=$status');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => Reminder.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<Reminder> updateReminder(
+    String id,
+    String action, {
+    int? snoozeHours,
+  }) async {
+    final data = await _patch('/api/reminders/$id', {
+      'action': action,
+      if (snoozeHours != null) 'snoozeHours': snoozeHours,
+    });
+    return Reminder.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<ReminderRule>> listReminderRules(String petId) async {
+    final data = await _get('/api/pets/$petId/reminder-rules');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => ReminderRule.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<ReminderRule> updateReminderRule(
+    String ruleId,
+    Map<String, dynamic> payload,
+  ) async {
+    final data = await _put('/api/reminder-rules/$ruleId', payload);
+    return ReminderRule.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<List<PetMember>> listMembers(String petId) async {
+    final data = await _get('/api/pets/$petId/members');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => PetMember.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<PetMember> addMember(
+    String petId,
+    String username,
+    String role,
+  ) async {
+    final data = await _post('/api/pets/$petId/members', {
+      'username': username,
+      'role': role,
+    });
+    return PetMember.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> removeMember(String petId, String userId) async {
+    await _delete('/api/pets/$petId/members/$userId');
+  }
+
+  Future<List<ShareGrant>> listShareGrants() async {
+    final data = await _get('/api/share-grants');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => ShareGrant.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<ShareGrant> createShareGrant(
+    String petId, {
+    required String role,
+    int ttlDays = 7,
+    String passcode = '',
+  }) async {
+    final data = await _post('/api/pets/$petId/share-grants', {
+      'role': role,
+      'ttlDays': ttlDays,
+      'passcode': passcode,
+    });
+    return ShareGrant.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> revokeShareGrant(String grantId) async {
+    await _post('/api/share-grants/$grantId/revoke', const {});
+  }
+
+  String shareUrl(String token) => '$_baseUrl/g/$token';
+
+  Future<List<Device>> listDevices() async {
+    final data = await _get('/api/devices');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => Device.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<void> revokeDevice(String deviceId) async {
+    await _delete('/api/devices/$deviceId');
+  }
+
+  Future<void> changePassword(String oldPassword, String newPassword) async {
+    await _patch('/api/account/password', {
+      'oldPassword': oldPassword,
+      'newPassword': newPassword,
+    });
+  }
+
+  Future<void> setUserStatus(String userId, String status) async {
+    await _patch('/api/admin/users/$userId/status', {'status': status});
+  }
+
+  Future<Map<String, dynamic>> createResetCode(String userId) async {
+    final data = await _post('/api/admin/users/$userId/reset-code', const {});
+    return data as Map<String, dynamic>;
+  }
+
+  Future<List<AdminDevice>> listAllDevices() async {
+    final data = await _get('/api/admin/devices');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => AdminDevice.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<void> adminRevokeDevice(String deviceId) async {
+    await _delete('/api/admin/devices/$deviceId');
+  }
+
+  Future<List<InviteCode>> listInvites() async {
+    final data = await _get('/api/admin/invites');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => InviteCode.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<void> revokeInvite(String inviteId) async {
+    await _post('/api/admin/invites/$inviteId/revoke', const {});
   }
 
   Future<Map<String, dynamic>> createInvite({int maxUses = 1, int ttlHours = 168}) async {
@@ -144,6 +358,10 @@ class ApiClient {
     return _request(() => _dio.patch(path, data: body));
   }
 
+  Future<dynamic> _put(String path, Map<String, dynamic> body) async {
+    return _request(() => _dio.put(path, data: body));
+  }
+
   Future<dynamic> _delete(String path) async {
     return _request(() => _dio.delete(path));
   }
@@ -163,6 +381,11 @@ class ApiClient {
       }
       throw ApiException(-1, '响应格式不正确');
     } on DioException catch (e) {
+      // Keep the diagnostic visible in `adb logcat` while the API surface is
+      // still being built; user-facing errors stay short.
+      // ignore: avoid_print
+      print('mypet dio error: type=${e.type} uri=${e.requestOptions.uri} '
+          'message=${e.message} error=${e.error}');
       final body = e.response?.data;
       if (body is Map<String, dynamic>) {
         throw ApiException(

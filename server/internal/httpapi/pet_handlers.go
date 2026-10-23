@@ -32,6 +32,10 @@ func (s *Server) createPet(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, r, err)
 		return
 	}
+	if err := s.store.SyncBirthdayRule(r.Context(), p); err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
 	s.store.Audit(r.Context(), "user", currentUser(r).ID, "create_pet", "pet", p.ID, "{}")
 	writeData(w, r, http.StatusCreated, p)
 }
@@ -67,6 +71,10 @@ func (s *Server) updatePet(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := s.store.UpdatePet(r.Context(), petID, currentUser(r).ID, in)
 	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	if err := s.store.SyncBirthdayRule(r.Context(), p); err != nil {
 		writeStoreError(w, r, err)
 		return
 	}

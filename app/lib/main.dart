@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/navigation.dart';
+import 'core/notifications.dart';
 import 'core/session.dart';
 import 'features/auth/login_page.dart';
 import 'features/home/home_page.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await NotificationService.init();
+  } catch (_) {
+    // Notification setup must never prevent the app from starting.
+  }
   runApp(const ProviderScope(child: MyApp()));
 }
 
@@ -16,6 +24,7 @@ class MyApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: '喵了个咪',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

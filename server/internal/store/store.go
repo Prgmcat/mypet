@@ -209,6 +209,42 @@ func (s *Store) RevokeDevice(ctx context.Context, deviceID, userID string) error
 	return nil
 }
 
+func (s *Store) ListAllDevices(ctx context.Context) ([]AdminDevice, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.user_id, u.username, d.name, d.last_seen_at, d.created_at, d.revoked_at
+		FROM devices d JOIN users u ON u.id = d.user_id ORDER BY d.created_at DESC LIMIT 1000`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AdminDevice, 0)
+	for rows.Next() {
+		var d AdminDevice
+		var lastSeen, revoked sql.NullString
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Username, &d.Name, &lastSeen, &d.CreatedAt, &revoked); err != nil {
+			return nil, err
+		}
+		if lastSeen.Valid {
+			d.LastSeenAt = lastSeen.String
+		}
+		if revoked.Valid {
+			d.RevokedAt = revoked.String
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RevokeDeviceAsAdmin(ctx context.Context, deviceID string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, db.Now(), deviceID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) UpdatePassword(ctx context.Context, userID, passwordHash, keepDeviceID string) error {
 	now := db.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -237,6 +273,38 @@ func (s *Store) CreateInvite(ctx context.Context, adminID string, maxUses int, t
 		return "", "", err
 	}
 	return plain, expires, nil
+}
+
+func (s *Store) ListInvites(ctx context.Context) ([]InviteCode, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, max_uses, used_count, expires_at, status, created_at
+		FROM invite_codes ORDER BY created_at DESC LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]InviteCode, 0)
+	for rows.Next() {
+		var invite InviteCode
+		if err := rows.Scan(&invite.ID, &invite.MaxUses, &invite.UsedCount, &invite.ExpiresAt, &invite.Status, &invite.CreatedAt); err != nil {
+			return nil, err
+		}
+		if invite.Status == "active" && invite.ExpiresAt <= db.Now() {
+			invite.Status = "expired"
+		}
+		out = append(out, invite)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) RevokeInvite(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE invite_codes SET status = 'revoked' WHERE id = ? AND status = 'active'`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) CreateResetCode(ctx context.Context, adminID, username string, ttl time.Duration) (string, error) {

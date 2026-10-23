@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/cache.dart';
 import '../../core/models.dart';
+import '../../core/notifications.dart';
 import '../../core/session.dart';
+import '../ai/ai_chat_page.dart';
 import '../pets/pet_detail_page.dart';
 import '../pets/pet_form_page.dart';
+import '../reminders/reminder_page.dart';
+import '../settings/settings_page.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -19,6 +23,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   List<Pet>? _pets;
   String? _error;
   bool _loading = true;
+  bool _offline = false;
+  DateTime? _cachedAt;
+  List<Reminder> _pending = const [];
 
   @override
   void initState() {
@@ -31,26 +38,114 @@ class _HomePageState extends ConsumerState<HomePage> {
       _loading = true;
       _error = null;
     });
+    final userId = ref.read(sessionProvider).user?.id;
     try {
       final pets = await ref.read(apiClientProvider).listPets();
       if (!mounted) return;
       setState(() {
         _pets = pets;
         _loading = false;
+        _offline = false;
       });
+      if (userId != null) await LocalCache.savePets(userId, pets);
+      await _loadReminders();
     } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.message;
-        _loading = false;
-      });
+      await _loadCachedOrError(e.message);
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = '加载失败，请检查服务器连接';
-        _loading = false;
-      });
+      await _loadCachedOrError('加载失败，请检查服务器连接');
     }
+  }
+
+  Future<void> _loadCachedOrError(String message) async {
+    final userId = ref.read(sessionProvider).user?.id;
+    if (userId != null) {
+      final cached = await LocalCache.loadPets(userId);
+      final at = await LocalCache.lastSaved(userId);
+      if (cached.isNotEmpty && mounted) {
+        setState(() {
+          _pets = cached;
+          _loading = false;
+          _error = null;
+          _offline = true;
+          _cachedAt = at;
+        });
+        final reminders = await LocalCache.loadReminders(userId, 'pending');
+        if (reminders.isNotEmpty && mounted) {
+          setState(() => _pending = reminders);
+        }
+        return;
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _error = message;
+      _loading = false;
+    });
+  }
+
+  Future<void> _loadReminders() async {
+    final userId = ref.read(sessionProvider).user?.id;
+    try {
+      final pending =
+          await ref.read(apiClientProvider).listReminders(status: 'pending');
+      if (!mounted) return;
+      setState(() => _pending = pending);
+      if (userId != null) {
+        await LocalCache.saveReminders(userId, 'pending', pending);
+      }
+      await NotificationService.syncReminders(pending);
+    } catch (_) {
+      // Reminders should never block the pet list.
+      if (userId != null) {
+        final cached = await LocalCache.loadReminders(userId, 'pending');
+        if (cached.isNotEmpty && mounted) setState(() => _pending = cached);
+      }
+    }
+  }
+
+  Future<void> _openReminders() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ReminderPage()),
+    );
+    if (mounted) await _loadReminders();
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SettingsPage()),
+    );
+    if (mounted) _load();
+  }
+
+  Future<void> _openAi() async {
+    final pets = _pets ?? const <Pet>[];
+    if (pets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('先添加一只宠物，再使用 AI 助手')),
+      );
+      return;
+    }
+    final pet = pets.length == 1
+        ? pets.first
+        : await showModalBottomSheet<Pet>(
+            context: context,
+            showDragHandle: true,
+            builder: (context) => ListView(
+              children: [
+                for (final p in pets)
+                  ListTile(
+                    leading: Text(p.species == 'cat' ? '🐱' : '🐶'),
+                    title: Text(p.name),
+                    subtitle: Text(p.breed.isEmpty ? p.speciesLabel : p.breed),
+                    onTap: () => Navigator.pop(context, p),
+                  ),
+              ],
+            ),
+          );
+    if (pet == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AiChatPage(pet: pet)),
+    );
   }
 
   Future<void> _openCreate() async {
@@ -65,97 +160,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       MaterialPageRoute(builder: (_) => PetDetailPage(pet: pet)),
     );
     if (changed == true) _load();
-  }
-
-  Future<void> _showInvite() async {
-    final code = await ref.read(sessionProvider.notifier).createInvite();
-    if (!mounted) return;
-    if (code == null || code.startsWith('ERR:')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(code?.replaceFirst('ERR:', '') ?? '创建失败')),
-      );
-      return;
-    }
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('邀请码'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('把这串邀请码发给新用户，默认 7 天有效、可用 1 次。'),
-            const SizedBox(height: 16),
-            SelectableText(
-              code,
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 3,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: code));
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('已复制邀请码')));
-            },
-            child: const Text('复制'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _showUsers() async {
-    try {
-      final users = await ref.read(sessionProvider.notifier).listUsers();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('用户列表'),
-          content: SizedBox(
-            width: 360,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: users.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final u = users[index];
-                return ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.person_outline),
-                  title: Text(u.displayName.isEmpty ? u.username : u.displayName),
-                  subtitle: Text(u.username),
-                  trailing: u.isAdmin
-                      ? const Chip(label: Text('管理员'))
-                      : Text(u.status == 'active' ? '正常' : '已禁用'),
-                );
-              },
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
-          ],
-        ),
-      );
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.message)));
-    }
   }
 
   Future<void> _logout() async {
@@ -177,6 +181,8 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
     if (ok == true) {
+      await NotificationService.cancelAll();
+      if (!mounted) return;
       await ref.read(sessionProvider.notifier).logout();
     }
   }
@@ -190,14 +196,26 @@ class _HomePageState extends ConsumerState<HomePage> {
         title: const Text('喵了个咪',
             style: TextStyle(fontWeight: FontWeight.w700)),
         actions: [
+          IconButton(
+            tooltip: '照护提醒',
+            onPressed: _openReminders,
+            icon: Badge(
+              isLabelVisible: _pending.isNotEmpty,
+              label: Text('${_pending.length}'),
+              child: const Icon(Icons.notifications_none),
+            ),
+          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
-                case 'invite':
-                  _showInvite();
+                case 'ai':
+                  _openAi();
                   break;
-                case 'users':
-                  _showUsers();
+                case 'reminders':
+                  _openReminders();
+                  break;
+                case 'settings':
+                  _openSettings();
                   break;
                 case 'logout':
                   _logout();
@@ -205,22 +223,27 @@ class _HomePageState extends ConsumerState<HomePage> {
               }
             },
             itemBuilder: (context) => [
-              if (user?.isAdmin == true) ...[
-                const PopupMenuItem(
-                  value: 'invite',
-                  child: ListTile(
-                    leading: Icon(Icons.vpn_key_outlined),
-                    title: Text('创建邀请码'),
-                  ),
+              const PopupMenuItem(
+                value: 'ai',
+                child: ListTile(
+                  leading: Icon(Icons.auto_awesome_outlined),
+                  title: Text('AI 助手'),
                 ),
-                const PopupMenuItem(
-                  value: 'users',
-                  child: ListTile(
-                    leading: Icon(Icons.group_outlined),
-                    title: Text('用户列表'),
-                  ),
+              ),
+              const PopupMenuItem(
+                value: 'reminders',
+                child: ListTile(
+                  leading: Icon(Icons.notifications_none),
+                  title: Text('照护提醒'),
                 ),
-              ],
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: ListTile(
+                  leading: Icon(Icons.settings_outlined),
+                  title: Text('设置'),
+                ),
+              ),
               const PopupMenuItem(
                 value: 'logout',
                 child: ListTile(
@@ -271,6 +294,20 @@ class _HomePageState extends ConsumerState<HomePage> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
       children: [
+        if (_offline)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDF0DC),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              '离线：显示最近缓存'
+              '${_cachedAt == null ? '' : '（${_cachedAt!.year}-${_cachedAt!.month.toString().padLeft(2, '0')}-${_cachedAt!.day.toString().padLeft(2, '0')}）'}',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
+            ),
+          ),
         if (user != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),

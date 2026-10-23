@@ -1,0 +1,1066 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+
+import '../../core/ai/ai_client.dart';
+import '../../core/ai/ai_config.dart';
+import '../../core/ai/ai_safety.dart';
+import '../../core/ai/ai_sessions.dart';
+import '../../core/api_client.dart';
+import '../../core/models.dart';
+import '../../core/session.dart';
+import '../records/record_form_page.dart';
+import 'ai_settings_page.dart';
+
+class AiChatPage extends ConsumerStatefulWidget {
+  const AiChatPage({
+    super.key,
+    required this.pet,
+    this.session,
+  });
+
+  final Pet pet;
+  final AiSession? session;
+
+  @override
+  ConsumerState<AiChatPage> createState() => _AiChatPageState();
+}
+
+class _AiChatPageState extends ConsumerState<AiChatPage> {
+  late Pet _pet = widget.pet;
+  late AiSession _session = widget.session ?? _newSession(widget.pet);
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
+  final _speech = SpeechToText();
+
+  List<Pet> _pets = const [];
+  List<HealthRecord> _records = const [];
+  List<WeightRecord> _weights = const [];
+  List<AiProviderConfig> _providers = const [];
+  AiProviderConfig? _config;
+  String _apiKey = '';
+  String _streamingText = '';
+  bool _sending = false;
+  bool _listening = false;
+  String? _error;
+  CancelToken? _cancelToken;
+  bool _showRedCard = false;
+
+  String get _userId => ref.read(sessionProvider).user?.id ?? 'anonymous';
+
+  static AiSession _newSession(Pet pet) => AiSession(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        petId: pet.id,
+        petName: pet.name,
+        title: '新对话',
+        updatedAt: DateTime.now().toIso8601String(),
+        messages: [],
+      );
+
+  @override
+  void initState() {
+    super.initState();
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _cancelToken?.cancel();
+    _input.dispose();
+    _scroll.dispose();
+    _speech.stop();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.listPets(),
+        api.listRecords(_pet.id),
+        api.listWeights(_pet.id),
+      ]);
+      _pets = results[0] as List<Pet>;
+      _records = results[1] as List<HealthRecord>;
+      _weights = results[2] as List<WeightRecord>;
+    } catch (_) {
+      // Context is best-effort; chat can still work without it.
+    }
+    await _loadConfig();
+    if (!mounted) return;
+    setState(() {});
+    _scrollToBottom();
+  }
+
+  Future<void> _loadConfig() async {
+    final configs = await AiConfigStore.load(_userId);
+    final usable = <AiProviderConfig>[];
+    final keys = <String, String>{};
+    for (final config in configs) {
+      final key = await AiConfigStore.apiKey(_userId, config.id);
+      if (key != null && key.isNotEmpty) {
+        usable.add(config);
+        keys[config.id] = key;
+      }
+    }
+    _providers = usable;
+    AiProviderConfig? picked;
+    if (_session.providerId.isNotEmpty) {
+      for (final config in usable) {
+        if (config.id == _session.providerId) picked = config;
+      }
+    }
+    if (picked == null) {
+      for (final config in usable) {
+        if (config.isDefault) picked = config;
+      }
+    }
+    if (picked == null && usable.isNotEmpty) picked = usable.first;
+    if (picked == null) {
+      _config = null;
+      _apiKey = '';
+      _session.providerId = '';
+      return;
+    }
+    _config = picked;
+    _apiKey = keys[picked.id]!;
+    _session.providerId = picked.id;
+  }
+
+  Future<void> _selectProvider(AiProviderConfig config) async {
+    final key = await AiConfigStore.apiKey(_userId, config.id) ?? '';
+    if (key.isEmpty) return;
+    if (!mounted) return;
+    setState(() {
+      _config = config;
+      _apiKey = key;
+      _session.providerId = config.id;
+    });
+    await AiSessionStore.upsert(_userId, _session);
+    _snack('本会话使用 ${config.name} · ${config.model}');
+  }
+
+  Future<void> _reloadContext() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.listRecords(_pet.id),
+        api.listWeights(_pet.id),
+      ]);
+      _records = results[0] as List<HealthRecord>;
+      _weights = results[1] as List<WeightRecord>;
+    } catch (_) {
+      // Ignore.
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.animateTo(
+        _scroll.position.maxScrollExtent + 200,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AiSettingsPage()),
+    );
+    await _loadConfig();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _send({String? retryText}) async {
+    if (_sending) return;
+    final text = (retryText ?? _input.text).trim();
+    if (text.isEmpty) return;
+    if (_config == null || _apiKey.isEmpty) {
+      _snack('还没有可用的 AI 服务，请先在设置中配置 Key');
+      await _openSettings();
+      return;
+    }
+    _input.clear();
+    setState(() {
+      _sending = true;
+      _error = null;
+      _streamingText = '';
+      _showRedCard = false;
+    });
+    final risk = assessRisk(text);
+    if (risk.isRed) {
+      setState(() => _showRedCard = true);
+    }
+    final userMessage = AiStoredMessage(
+      role: 'user',
+      content: text,
+      riskLevel: 'l${risk.level.index}',
+      createdAt: DateTime.now().toIso8601String(),
+    );
+    _session.messages.add(userMessage);
+    if (_session.title == '新对话') {
+      _session.title =
+          text.length > 18 ? '${text.substring(0, 18)}…' : text;
+    }
+    await AiSessionStore.upsert(_userId, _session);
+    _scrollToBottom();
+
+    final system = buildSystemPrompt(
+      pet: _pet,
+      records: _records,
+      weights: _weights,
+    );
+    final history = _session.messages
+        .where((m) => m.role == 'user' || m.role == 'assistant')
+        .toList();
+    final start = history.length > 20 ? history.length - 20 : 0;
+    final messages = [
+      for (final m in history.sublist(start))
+        AiMessage(role: m.role, content: m.content),
+    ];
+    final buffer = StringBuffer();
+    _cancelToken = CancelToken();
+    try {
+      await for (final delta in AiClient().stream(
+        config: _config!,
+        apiKey: _apiKey,
+        systemPrompt: system,
+        messages: messages,
+        cancelToken: _cancelToken,
+      )) {
+        buffer.write(delta);
+        if (!mounted) return;
+        setState(() => _streamingText = buffer.toString());
+        _scrollToBottom();
+      }
+      if (!mounted) return;
+      final answer = buffer.toString().trim();
+      if (answer.isEmpty) {
+        throw AiException('模型没有返回内容，请重试');
+      }
+      final answerRisk = assessRisk(text, aiText: answer);
+      _session.messages.add(AiStoredMessage(
+        role: 'assistant',
+        content: answer,
+        riskLevel: 'l${answerRisk.level.index}',
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+      await AiSessionStore.upsert(_userId, _session);
+      if (!mounted) return;
+      setState(() {
+        _streamingText = '';
+        _sending = false;
+        _showRedCard = answerRisk.isRed;
+      });
+      _scrollToBottom();
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        _finishPartial(buffer.toString(), text);
+        return;
+      }
+      _fail(e.toString());
+    } on AiException catch (e) {
+      _fail(e.message);
+    } catch (_) {
+      _fail('AI 请求失败，请检查网络或模型配置');
+    }
+  }
+
+  void _finishPartial(String partial, String question) {
+    if (!mounted) return;
+    final text = partial.trim();
+    if (text.isNotEmpty) {
+      _session.messages.add(AiStoredMessage(
+        role: 'assistant',
+        content: '$text\n\n（已取消生成）',
+        riskLevel: 'l${assessRisk(question, aiText: text).level.index}',
+        createdAt: DateTime.now().toIso8601String(),
+      ));
+      AiSessionStore.upsert(_userId, _session);
+    }
+    setState(() {
+      _streamingText = '';
+      _sending = false;
+    });
+  }
+
+  void _fail(String message) {
+    if (!mounted) return;
+    setState(() {
+      _streamingText = '';
+      _sending = false;
+      _error = message;
+    });
+  }
+
+  void _stop() {
+    _cancelToken?.cancel();
+  }
+
+  Future<void> _retry() async {
+    final lastUser = _session.messages.lastWhere(
+      (m) => m.role == 'user',
+      orElse: () => AiStoredMessage(role: 'user', content: ''),
+    );
+    if (lastUser.content.isEmpty) return;
+    if (_session.messages.isNotEmpty &&
+        _session.messages.last.role == 'assistant') {
+      _session.messages.removeLast();
+    }
+    await _send(retryText: lastUser.content);
+  }
+
+  Future<void> _toggleVoice() async {
+    if (_listening) {
+      await _speech.stop();
+      if (mounted) setState(() => _listening = false);
+      return;
+    }
+    final available = await _speech.initialize(
+      onStatus: (status) {
+        if (status == 'done' || status == 'notListening') {
+          if (mounted) setState(() => _listening = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _listening = false);
+      },
+    );
+    if (!available) {
+      _snack('语音识别不可用，可以继续用键盘输入');
+      return;
+    }
+    final locales = await _speech.locales();
+    final chinese = locales
+        .where((l) => l.localeId.toLowerCase().startsWith('zh'))
+        .map((l) => l.localeId)
+        .toList();
+    await _speech.listen(
+      onResult: (result) {
+        if (!mounted) return;
+        _input.text = result.recognizedWords;
+        _input.selection = TextSelection.fromPosition(
+          TextPosition(offset: _input.text.length),
+        );
+        setState(() {});
+      },
+      localeId: chinese.isNotEmpty ? chinese.first : null,
+      listenMode: ListenMode.dictation,
+    );
+    if (mounted) setState(() => _listening = true);
+  }
+
+  Future<void> _switchPet(Pet pet) async {
+    if (pet.id == _pet.id) return;
+    setState(() {
+      _pet = pet;
+      _session = _newSession(pet);
+      _streamingText = '';
+      _error = null;
+      _showRedCard = false;
+    });
+    await _reloadContext();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _showHistory() async {
+    final sessions = await AiSessionStore.load(_userId);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => ListView(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_comment_outlined),
+              title: const Text('新对话'),
+              onTap: () {
+                Navigator.pop(context);
+                setState(() => _session = _newSession(_pet));
+              },
+            ),
+            const Divider(height: 1),
+            if (sessions.isEmpty)
+              const ListTile(enabled: false, title: Text('还没有历史会话')),
+            for (final session in sessions)
+              ListTile(
+                leading: const Icon(Icons.chat_bubble_outline),
+                title: Text(session.title, maxLines: 1),
+                subtitle: Text(
+                  '${session.petName} · ${session.updatedAt.split('T').first}',
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  onPressed: () async {
+                    await AiSessionStore.delete(_userId, session.id);
+                    sessions.removeWhere((s) => s.id == session.id);
+                    setSheetState(() {});
+                  },
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final pet = _pets.firstWhere(
+                    (p) => p.id == session.petId,
+                    orElse: () => _pet,
+                  );
+                  setState(() {
+                    _session = session;
+                    _pet = pet;
+                  });
+                  await _reloadContext();
+                  if (mounted) setState(() {});
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _extractRecord() async {
+    if (_config == null || _apiKey.isEmpty) {
+      _snack('请先配置 AI 服务');
+      return;
+    }
+    final conversation = _session.messages
+        .map((m) => '${m.role == 'user' ? '用户' : '助手'}：${m.content}')
+        .join('\n');
+    if (conversation.trim().isEmpty) {
+      _snack('先聊几句再提取记录');
+      return;
+    }
+    setState(() => _sending = true);
+    _cancelToken = CancelToken();
+    try {
+      final raw = await AiClient().complete(
+        config: _config!,
+        apiKey: _apiKey,
+        systemPrompt: buildRecordExtractionPrompt(_pet),
+        messages: [
+          AiMessage(role: 'user', content: conversation),
+        ],
+        cancelToken: _cancelToken,
+      );
+      final draft = _parseDraft(raw);
+      if (!mounted) return;
+      setState(() => _sending = false);
+      if (draft == null) {
+        _snack('没有成功提取记录，可以打开手动表单');
+        _openManualRecord();
+        return;
+      }
+      await _confirmDraft(draft);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      if (CancelToken.isCancel(e)) {
+        _snack('已取消提取');
+      } else {
+        _snack('提取失败，可以打开手动表单');
+      }
+    } on AiException catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      _snack(e.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      _snack('提取失败，可以打开手动表单');
+    }
+  }
+
+  Map<String, dynamic>? _parseDraft(String raw) {
+    final start = raw.indexOf('{');
+    final end = raw.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      final json = jsonDecode(raw.substring(start, end + 1));
+      if (json is! Map<String, dynamic>) return null;
+      const types = {
+        'vaccine',
+        'deworming',
+        'checkup',
+        'medical',
+        'medication',
+        'grooming',
+        'other',
+      };
+      final type = (json['type'] as String?) ?? '';
+      final occurred = (json['occurredAt'] as String?) ?? '';
+      final title = (json['title'] as String?) ?? '';
+      if (!types.contains(type) ||
+          DateTime.tryParse(occurred) == null ||
+          title.trim().isEmpty) {
+        return null;
+      }
+      return json;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _confirmDraft(Map<String, dynamic> draft) async {
+    final type = draft['type'] as String;
+    final payload = (draft['payload'] as Map?)?.cast<String, dynamic>() ?? {};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI 记录草稿'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('确认后才会写入档案。'),
+              const SizedBox(height: 12),
+              _draftRow('类型', _typeLabel(type)),
+              _draftRow('日期', (draft['occurredAt'] as String?) ?? ''),
+              _draftRow('标题', (draft['title'] as String?) ?? ''),
+              if ((draft['hospital'] as String?)?.isNotEmpty == true)
+                _draftRow('医院', draft['hospital'] as String),
+              if ((draft['nextDueAt'] as String?)?.isNotEmpty == true)
+                _draftRow('下次', draft['nextDueAt'] as String),
+              for (final entry in payload.entries)
+                if (entry.value != null &&
+                    entry.value.toString().trim().isNotEmpty)
+                  _draftRow(entry.key, entry.value.toString()),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context, false);
+              _openManualRecord();
+            },
+            child: const Text('手动修改'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('写入记录'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ref.read(apiClientProvider).createRecord(_pet.id, {
+        'type': type,
+        'occurredAt': draft['occurredAt'],
+        'title': draft['title'],
+        'payload': payload,
+        'hospital': (draft['hospital'] as String?) ?? '',
+        'doctor': (draft['doctor'] as String?) ?? '',
+        'nextDueAt': (draft['nextDueAt'] as String?) ?? '',
+        'source': 'ai',
+      });
+      if (!mounted) return;
+      _snack('已写入记录，提醒会按下次日期自动计算');
+      await _reloadContext();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      _snack(e.message);
+    }
+  }
+
+  void _openManualRecord() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => RecordFormPage(pet: _pet)),
+    );
+  }
+
+  String _typeLabel(String type) => switch (type) {
+        'vaccine' => '疫苗',
+        'deworming' => '驱虫',
+        'checkup' => '体检',
+        'medical' => '病历',
+        'medication' => '用药',
+        'grooming' => '洗护',
+        _ => '其他',
+      };
+
+  Widget _draftRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text(label,
+                style: const TextStyle(color: Colors.black54, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    _snack('已复制');
+  }
+
+  void _feedback(AiStoredMessage message, int value) {
+    setState(() {
+      message.feedback = message.feedback == value ? 0 : value;
+    });
+    AiSessionStore.upsert(_userId, _session);
+    _snack(message.feedback == 1
+        ? '已标记为有用'
+        : message.feedback == -1
+            ? '已标记为无用，我们会继续改进'
+            : '已取消反馈');
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('AI 助手', style: TextStyle(fontSize: 16)),
+            Text(
+              '当前宠物：${_pet.name}',
+              style: const TextStyle(fontSize: 11, color: Colors.black54),
+            ),
+          ],
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: '切换模型服务商',
+            icon: const Icon(Icons.memory),
+            onSelected: (value) async {
+              if (value == 'settings') {
+                await _openSettings();
+                return;
+              }
+              for (final config in _providers) {
+                if (config.id == value) {
+                  await _selectProvider(config);
+                  return;
+                }
+              }
+            },
+            itemBuilder: (context) => [
+              for (final config in _providers)
+                CheckedPopupMenuItem(
+                  value: config.id,
+                  checked: config.id == _config?.id,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(config.name),
+                      Text(
+                        config.model,
+                        style: const TextStyle(
+                            fontSize: 11, color: Colors.black45),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_providers.isEmpty)
+                const PopupMenuItem<String>(
+                  enabled: false,
+                  child: Text('还没有可用的服务商'),
+                ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'settings',
+                child: Text('AI 服务设置'),
+              ),
+            ],
+          ),
+          if (_pets.length > 1)
+            IconButton(
+              tooltip: '切换宠物',
+              icon: const Icon(Icons.pets),
+              onPressed: () async {
+                final pet = await showModalBottomSheet<Pet>(
+                  context: context,
+                  showDragHandle: true,
+                  builder: (context) => ListView(
+                    children: [
+                      for (final p in _pets)
+                        ListTile(
+                          leading: Text(p.species == 'cat' ? '🐱' : '🐶'),
+                          title: Text(p.name),
+                          subtitle: Text(p.breed.isEmpty ? p.speciesLabel : p.breed),
+                          onTap: () => Navigator.pop(context, p),
+                        ),
+                    ],
+                  ),
+                );
+                if (pet != null) await _switchPet(pet);
+              },
+            ),
+          IconButton(
+            tooltip: '历史会话',
+            icon: const Icon(Icons.history),
+            onPressed: _showHistory,
+          ),
+          IconButton(
+            tooltip: 'AI 设置',
+            icon: const Icon(Icons.tune),
+            onPressed: _openSettings,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_config == null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: const Color(0xFFFDF0DC),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      '还没有配置 AI 服务。Key 只保存在本机，不会上传服务端。',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _openSettings,
+                    child: const Text('去配置'),
+                  ),
+                ],
+              ),
+            ),
+          if (_showRedCard)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFBEAE9),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE7B4AE)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '🚨 紧急就医提示',
+                    style: TextStyle(
+                      color: Color(0xFF9B2C2C),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    '你的描述包含紧急红旗症状：请立即联系或前往宠物医院，'
+                    '不要等待在线建议。若在途中，保持宠物安静并避免自行喂药。',
+                    style: TextStyle(
+                      color: Color(0xFF9B2C2C),
+                      fontSize: 13,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: _session.messages.isEmpty && _streamingText.isEmpty
+                ? _emptyState()
+                : ListView(
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                    children: [
+                      for (final message in _session.messages)
+                        _bubble(message),
+                      if (_streamingText.isNotEmpty)
+                        _streamingBubble(),
+                      if (_error != null)
+                        _errorBanner(),
+                    ],
+                  ),
+          ),
+          if (_session.messages.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: TextButton.icon(
+                onPressed: _sending ? null : _extractRecord,
+                icon: const Icon(Icons.playlist_add, size: 18),
+                label: const Text('把这段对话转成记录草稿'),
+              ),
+            ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  IconButton(
+                    onPressed: _toggleVoice,
+                    icon: Icon(_listening ? Icons.mic : Icons.mic_none),
+                    color: _listening ? Colors.red : null,
+                    tooltip: _listening ? '停止语音' : '语音输入',
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.newline,
+                      decoration: const InputDecoration(
+                        hintText: '描述症状或照护问题…',
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_sending)
+                    IconButton.filled(
+                      onPressed: _stop,
+                      icon: const Icon(Icons.stop),
+                      tooltip: '停止生成',
+                    )
+                  else
+                    IconButton.filled(
+                      onPressed: () => _send(),
+                      icon: const Icon(Icons.arrow_upward),
+                      tooltip: '发送',
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        const SizedBox(height: 32),
+        const Text(
+          '🐾',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 48),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '咨询「${_pet.name}」的照护问题',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '回答会结合宠物档案（年龄、品种、疫苗、体重、病史）。\n'
+          'AI 不能替代兽医面诊，也不会给出药物剂量。',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.black54, fontSize: 13, height: 1.6),
+        ),
+        const SizedBox(height: 24),
+        for (final prompt in const [
+          '最近食欲下降，需要观察什么？',
+          '下次驱虫是什么时候？',
+          '带它出门需要注意什么？',
+        ])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: OutlinedButton(
+              onPressed: () {
+                _input.text = prompt;
+                _send();
+              },
+              child: Text(prompt),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _bubble(AiStoredMessage message) {
+    final isUser = message.role == 'user';
+    final risk = message.riskLevel;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser)
+            const CircleAvatar(
+              radius: 16,
+              backgroundColor: Color(0xFFF1E4D8),
+              child: Text('🐾', style: TextStyle(fontSize: 14)),
+            ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Column(
+              crossAxisAlignment:
+                  isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (!isUser && risk.isNotEmpty && risk != 'l0')
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: _riskChip(risk),
+                  ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isUser ? const Color(0xFF8B5E3C) : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    message.content,
+                    style: TextStyle(
+                      color: isUser ? Colors.white : Colors.black87,
+                      height: 1.5,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                if (!isUser)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('AI 生成，仅供参考',
+                            style:
+                                TextStyle(fontSize: 10, color: Colors.black38)),
+                        const SizedBox(width: 8),
+                        _iconAction(Icons.copy, '复制',
+                            () => _copy(message.content)),
+                        _iconAction(
+                          message.feedback == 1
+                              ? Icons.thumb_up
+                              : Icons.thumb_up_outlined,
+                          '有用',
+                          () => _feedback(message, 1),
+                        ),
+                        _iconAction(
+                          message.feedback == -1
+                              ? Icons.thumb_down
+                              : Icons.thumb_down_outlined,
+                          '无用',
+                          () => _feedback(message, -1),
+                        ),
+                        if (message == _session.messages.last)
+                          _iconAction(Icons.refresh, '重试', _retry),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _streamingBubble() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CircleAvatar(
+            radius: 16,
+            backgroundColor: Color(0xFFF1E4D8),
+            child: Text('🐾', style: TextStyle(fontSize: 14)),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                '$_streamingText▍',
+                style: const TextStyle(height: 1.5, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _errorBanner() {
+    return Container(
+      margin: const EdgeInsets.only(top: 4, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFBE9E7),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(_error!,
+                style:
+                    const TextStyle(color: Color(0xFF9B2C2C), fontSize: 13)),
+          ),
+          TextButton(onPressed: _retry, child: const Text('重试')),
+          TextButton(
+            onPressed: () => setState(() => _error = null),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _riskChip(String level) {
+    final (label, color) = switch (level) {
+      'l3' => ('紧急就医', const Color(0xFF9B2C2C)),
+      'l2' => ('建议 24h 内就医', const Color(0xFF8A4B08)),
+      _ => ('先观察', const Color(0xFF3E6B4F)),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(label, style: TextStyle(fontSize: 10, color: color)),
+    );
+  }
+
+  Widget _iconAction(IconData icon, String tooltip, VoidCallback onTap) {
+    return IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 15),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+    );
+  }
+}

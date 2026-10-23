@@ -39,6 +39,10 @@ func main() {
 		err = runResetPassword(os.Args[2:])
 	case "backup":
 		err = runBackup(os.Args[2:])
+	case "restore":
+		err = runRestore(os.Args[2:])
+	case "doctor":
+		err = runDoctor(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	default:
@@ -59,6 +63,8 @@ Usage:
   mypet create-invite  -data ./data -ttl-hours 168 -max-uses 1
   mypet reset-password -data ./data -username admin -password 'NewPassw0rd!'
   mypet backup         -data ./data -out ./backup
+  mypet restore        -data ./data -from ./backup/mypet-YYYYmmdd-HHMMSS.zip
+  mypet doctor         -data ./data
   mypet version`)
 }
 
@@ -209,24 +215,10 @@ func runBackup(args []string) error {
 	dataDir := fs.String("data", "./data", "data directory")
 	outDir := fs.String("out", "./backup", "output directory")
 	fs.Parse(args)
-	if err := os.MkdirAll(*outDir, 0o700); err != nil {
-		return err
-	}
-	d, _, err := openDB(*dataDir)
+	path, err := backupTo(*dataDir, *outDir)
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	name := fmt.Sprintf("mypet-%s.db", time.Now().UTC().Format("20060102-150405"))
-	outPath := filepath.Join(*outDir, name)
-	abs, err := filepath.Abs(outPath)
-	if err != nil {
-		return err
-	}
-	stmt := fmt.Sprintf("VACUUM INTO '%s'", strings.ReplaceAll(abs, "'", "''"))
-	if _, err := d.ExecContext(context.Background(), stmt); err != nil {
-		return err
-	}
-	fmt.Println(abs)
+	fmt.Println(path)
 	return nil
 }

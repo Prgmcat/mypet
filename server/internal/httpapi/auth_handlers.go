@@ -96,11 +96,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusBadRequest, 10001, "invalid json")
 		return
 	}
-	u, hash, err := s.store.FindUserByUsername(r.Context(), strings.TrimSpace(body.Username))
+	username := strings.TrimSpace(body.Username)
+	limitKey := strings.ToLower(username) + "|" + clientHost(r)
+	if locked, d := s.loginLimiter.locked(limitKey); locked {
+		w.Header().Set("Retry-After", strconvSeconds(d))
+		writeError(w, r, http.StatusTooManyRequests, 40002, "too many failed attempts, try again later")
+		return
+	}
+	u, hash, err := s.store.FindUserByUsername(r.Context(), username)
 	if err != nil || !auth.VerifyPassword(hash, body.Password) || u.Status != "active" {
+		s.loginLimiter.fail(limitKey)
 		writeError(w, r, http.StatusUnauthorized, 20005, "invalid username or password")
 		return
 	}
+	s.loginLimiter.reset(limitKey)
 	deviceName := strings.TrimSpace(body.DeviceName)
 	if deviceName == "" {
 		deviceName = "Android"
@@ -214,6 +223,25 @@ func (s *Server) revokeDevice(w http.ResponseWriter, r *http.Request) {
 	writeData(w, r, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *Server) adminListDevices(w http.ResponseWriter, r *http.Request) {
+	devices, err := s.store.ListAllDevices(r.Context())
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	writeData(w, r, http.StatusOK, devices)
+}
+
+func (s *Server) adminRevokeDevice(w http.ResponseWriter, r *http.Request) {
+	deviceID := chi.URLParam(r, "deviceID")
+	if err := s.store.RevokeDeviceAsAdmin(r.Context(), deviceID); err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	s.store.Audit(r.Context(), "admin", currentUser(r).ID, "admin_revoke_device", "device", deviceID, "{}")
+	writeData(w, r, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.store.ListUsers(r.Context())
 	if err != nil {
@@ -258,6 +286,25 @@ func (s *Server) adminCreateResetCode(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.Audit(r.Context(), "admin", currentUser(r).ID, "create_reset_code", "user", userID, "{}")
 	writeData(w, r, http.StatusCreated, map[string]any{"code": code, "expiresInMinutes": 15})
+}
+
+func (s *Server) adminListInvites(w http.ResponseWriter, r *http.Request) {
+	invites, err := s.store.ListInvites(r.Context())
+	if err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	writeData(w, r, http.StatusOK, invites)
+}
+
+func (s *Server) adminRevokeInvite(w http.ResponseWriter, r *http.Request) {
+	inviteID := chi.URLParam(r, "inviteID")
+	if err := s.store.RevokeInvite(r.Context(), inviteID); err != nil {
+		writeStoreError(w, r, err)
+		return
+	}
+	s.store.Audit(r.Context(), "admin", currentUser(r).ID, "revoke_invite", "invite", inviteID, "{}")
+	writeData(w, r, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) adminCreateInvite(w http.ResponseWriter, r *http.Request) {

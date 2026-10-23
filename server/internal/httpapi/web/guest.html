@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>喵了个咪 · 访客照护</title>
+<style>
+  :root { --bg:#F7F3EE; --card:#fff; --ink:#2F2A26; --muted:#6B625A; --accent:#8B5E3C; --ok:#3E6B4F; --warn:#B45309; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:560px; margin:0 auto; padding:16px 16px 48px; }
+  header { padding:12px 0 8px; }
+  h1 { font-size:22px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border-radius:18px; padding:16px; margin:12px 0; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .hero { display:flex; align-items:center; gap:14px; }
+  .avatar { width:64px; height:64px; border-radius:50%; background:#F1E4D8; display:grid; place-items:center; font-size:32px; flex:none; }
+  .name { font-size:20px; font-weight:700; }
+  .meta { color:var(--muted); font-size:13px; }
+  .tag { display:inline-block; background:#E8F0E4; border-radius:999px; padding:2px 10px; font-size:12px; margin-left:6px; }
+  .rows { display:grid; gap:10px; }
+  .row { display:flex; gap:12px; }
+  .row .k { color:var(--muted); flex:none; min-width:72px; }
+  .row .v { white-space:pre-wrap; word-break:break-word; }
+  h2 { font-size:16px; margin:0 0 10px; }
+  .empty { color:var(--muted); font-size:14px; }
+  .reminder { border-top:1px solid #EFE9E2; padding:12px 0; display:flex; gap:12px; align-items:center; }
+  .reminder:first-of-type { border-top:0; padding-top:0; }
+  .reminder .body { flex:1; }
+  .reminder .title { font-weight:600; }
+  .reminder .due { color:var(--muted); font-size:13px; }
+  .pill { font-size:12px; border-radius:999px; padding:2px 8px; background:#F3EDE6; color:var(--muted); }
+  button { font:inherit; border:0; border-radius:12px; padding:10px 14px; background:var(--accent); color:#fff; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  button.ghost { background:#EFE7DE; color:var(--ink); }
+  .banner { border-radius:12px; padding:10px 12px; font-size:13px; margin-top:10px; }
+  .banner.warn { background:#FDF0DC; color:#8A4B08; }
+  .banner.err { background:#FBE9E7; color:#9B2C2C; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; place-items:center; padding:20px; }
+  .modal.show { display:grid; }
+  .modal .box { background:#fff; border-radius:18px; padding:20px; width:100%; max-width:360px; }
+  input[type=password], input[type=file] { width:100%; font:inherit; padding:10px 12px; border:1px solid #E3DAD1; border-radius:12px; background:#fff; }
+  .actions { display:flex; gap:8px; margin-top:12px; }
+  .actions button { flex:1; }
+  footer { color:var(--muted); font-size:12px; text-align:center; margin-top:20px; }
+  .toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#2F2A26; color:#fff; border-radius:999px; padding:8px 16px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>喵了个咪 · 照护页</h1>
+    <div class="sub" id="expiry"></div>
+  </header>
+
+  <div class="card" id="petCard"><div class="empty">正在加载…</div></div>
+
+  <div class="card">
+    <h2>今日待办</h2>
+    <div id="reminders"><div class="empty">正在加载…</div></div>
+  </div>
+
+  <div class="card" id="feedbackCard" style="display:none">
+    <h2>拍照反馈</h2>
+    <div class="sub" style="margin-bottom:10px">拍一张照护后的照片，所有者可以在 App 里看到。</div>
+    <input type="file" id="photo" accept="image/*" capture="environment">
+    <div class="actions"><button id="uploadBtn" disabled>上传照片</button></div>
+    <div id="uploadMsg"></div>
+  </div>
+
+  <footer>
+    这是宠物所有者分享的临时照护链接，请勿转发给无关人员。<br>
+    数据仅用于本次照护，到期或撤销后立即失效。
+  </footer>
+</div>
+
+<div class="modal" id="passModal">
+  <div class="box">
+    <h2>输入访问口令</h2>
+    <div class="sub" style="margin-bottom:12px">所有者为此链接设置了 4 位数字口令。</div>
+    <input type="password" id="passInput" inputmode="numeric" maxlength="4" placeholder="4 位口令" autocomplete="off">
+    <div class="banner err" id="passErr" style="display:none"></div>
+    <div class="actions">
+      <button id="passBtn">打开</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var token = (location.pathname.split('/').filter(Boolean).pop() || '');
+  var passcode = sessionStorage.getItem('mypet_guest_pass') || '';
+  var state = { pet: null, role: 'viewer', canComplete: false };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    setTimeout(function () { t.classList.remove('show'); }, 2200);
+  }
+  async function api(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({}, opts.headers || {});
+    if (passcode) headers['X-Share-Passcode'] = passcode;
+    var res = await fetch(path, Object.assign({}, opts, { headers: headers }));
+    var body;
+    try { body = await res.json(); } catch (e) { throw new Error('服务器响应异常'); }
+    if (body.code !== 0) {
+      var err = new Error(body.message || '请求失败');
+      err.code = body.code; err.status = res.status;
+      throw err;
+    }
+    return body.data;
+  }
+  function showPass(show) {
+    document.getElementById('passModal').classList.toggle('show', !!show);
+    if (show) setTimeout(function () { document.getElementById('passInput').focus(); }, 50);
+  }
+  function passError(msg) {
+    var n = document.getElementById('passErr');
+    n.textContent = msg; n.style.display = 'block';
+  }
+
+  function reminderTitle(type) {
+    return { vaccine:'疫苗', deworming:'驱虫', checkup:'体检', birthday:'生日', grooming:'洗护' }[type] || '照护';
+  }
+
+  function renderPet() {
+    var box = document.getElementById('petCard');
+    box.textContent = '';
+    var p = state.pet;
+    if (!p) return;
+    var hero = el('div', 'hero');
+    var av = el('div', 'avatar', p.species === 'dog' ? '🐶' : p.species === 'cat' ? '🐱' : '🐾');
+    var info = el('div');
+    var name = el('div', 'name', p.name);
+    if (state.role === 'co_caregiver') name.appendChild(el('span', 'tag', '共同照护'));
+    else name.appendChild(el('span', 'tag', '只读'));
+    info.appendChild(name);
+    var bits = [];
+    if (p.species === 'cat') bits.push('猫'); else if (p.species === 'dog') bits.push('狗');
+    if (p.breed) bits.push(p.breed);
+    if (p.sex === 'male') bits.push('公'); else if (p.sex === 'female') bits.push('母');
+    if (p.birthday) bits.push('生日 ' + p.birthday);
+    info.appendChild(el('div', 'meta', bits.join(' · ')));
+    hero.appendChild(av); hero.appendChild(info);
+    box.appendChild(hero);
+
+    var rows = el('div', 'rows');
+    rows.style.marginTop = '14px';
+    function row(k, v) {
+      if (!v) return;
+      var r = el('div', 'row');
+      r.appendChild(el('div', 'k', k));
+      r.appendChild(el('div', 'v', v));
+      rows.appendChild(r);
+    }
+    row('体重', p.currentWeightKg ? p.currentWeightKg.toFixed(1) + ' kg' : '');
+    row('绝育', p.neutered === 'yes' ? '已绝育' : p.neutered === 'no' ? '未绝育' : '');
+    row('过敏史', p.allergies);
+    row('慢性病', p.chronicConditions);
+    row('长期用药', p.medications);
+    row('证件号', p.identityNo);
+    box.appendChild(rows);
+
+    var isCo = state.role === 'co_caregiver';
+    document.getElementById('feedbackCard').style.display = isCo ? 'block' : 'none';
+  }
+
+  function renderReminders(list) {
+    var box = document.getElementById('reminders');
+    box.textContent = '';
+    if (!list || !list.length) {
+      box.appendChild(el('div', 'empty', '今天没有待办，辛苦啦。'));
+      return;
+    }
+    list.forEach(function (r) {
+      var row = el('div', 'reminder');
+      var body = el('div', 'body');
+      body.appendChild(el('div', 'title', reminderTitle(r.type)));
+      body.appendChild(el('div', 'due', '到期 ' + r.dueAt + (r.status === 'snoozed' ? ' · 已稍后' : '')));
+      row.appendChild(body);
+      if (state.canComplete) {
+        var btn = el('button', '', '完成');
+        btn.addEventListener('click', function () { completeReminder(r, btn); });
+        row.appendChild(btn);
+      } else {
+        row.appendChild(el('span', 'pill', '只读'));
+      }
+      box.appendChild(row);
+    });
+  }
+
+  async function completeReminder(r, btn) {
+    btn.disabled = true; btn.textContent = '处理中';
+    try {
+      await api('/api/guest/' + encodeURIComponent(token) + '/reminders/' + encodeURIComponent(r.id) + '/complete', { method: 'POST' });
+      toast('已完成，谢谢照护');
+      await load();
+    } catch (e) {
+      toast(e.message);
+      btn.disabled = false; btn.textContent = '完成';
+    }
+  }
+
+  async function load() {
+    try {
+      var data = await api('/api/guest/' + encodeURIComponent(token) + '/pet');
+      state.pet = data.pet; state.role = data.role; state.canComplete = !!data.canComplete;
+      document.getElementById('expiry').textContent = '链接有效期至 ' + new Date(data.expiresAt).toLocaleString();
+      renderPet();
+      var reminders = await api('/api/guest/' + encodeURIComponent(token) + '/reminders');
+      renderReminders(reminders);
+      showPass(false);
+    } catch (e) {
+      if (e.code === 20007) { showPass(true); return; }
+      var box = document.getElementById('petCard');
+      box.textContent = '';
+      var banner = el('div', 'banner err', e.message || '链接不可用');
+      box.appendChild(banner);
+      document.getElementById('reminders').textContent = '';
+      document.getElementById('reminders').appendChild(el('div', 'empty', '无法加载待办'));
+    }
+  }
+
+  document.getElementById('passBtn').addEventListener('click', function () {
+    var v = document.getElementById('passInput').value.trim();
+    if (!/^\d{4}$/.test(v)) { passError('请输入 4 位数字口令'); return; }
+    passcode = v;
+    sessionStorage.setItem('mypet_guest_pass', v);
+    document.getElementById('passErr').style.display = 'none';
+    load();
+  });
+  document.getElementById('passInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') document.getElementById('passBtn').click();
+  });
+
+  var photoInput = document.getElementById('photo');
+  var uploadBtn = document.getElementById('uploadBtn');
+  photoInput.addEventListener('change', function () {
+    uploadBtn.disabled = !photoInput.files.length;
+    document.getElementById('uploadMsg').textContent = '';
+  });
+  uploadBtn.addEventListener('click', async function () {
+    if (!photoInput.files.length) return;
+    uploadBtn.disabled = true;
+    var fd = new FormData();
+    fd.append('file', photoInput.files[0]);
+    try {
+      await api('/api/guest/' + encodeURIComponent(token) + '/uploads', { method: 'POST', body: fd });
+      var msg = document.getElementById('uploadMsg');
+      msg.className = 'banner'; msg.textContent = '照片已上传，谢谢反馈。';
+      photoInput.value = '';
+    } catch (e) {
+      var m = document.getElementById('uploadMsg');
+      m.className = 'banner err'; m.textContent = e.message;
+      uploadBtn.disabled = false;
+    }
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

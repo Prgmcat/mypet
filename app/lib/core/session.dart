@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
+import 'cache.dart';
 import 'models.dart';
 
 const defaultServerUrl = 'http://10.0.2.2:8787';
@@ -150,12 +151,14 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> logout() async {
+    final userId = state.user?.id;
     try {
       await _api.logout();
     } catch (_) {
       // Local logout should still succeed when the server is unreachable.
     }
     await _secure.delete(key: _tokenKey);
+    if (userId != null) await LocalCache.clear(userId);
     state = SessionState(
       loading: false,
       serverUrl: state.serverUrl,
