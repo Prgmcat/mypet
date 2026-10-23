@@ -71,6 +71,40 @@ void main() {
     expect(parseLocalCaptures('咪咪吃什么猫粮好', pets), isEmpty);
   });
 
+  test('growth moment creates a growth event', () {
+    final events = parseLocalCaptures('今天咪咪很开心地抓蝴蝶', pets);
+    expect(events.length, 1);
+    expect(events.first.kind, 'growth');
+    expect(events.first.petId, mimi.id);
+    expect(events.first.title, contains('抓蝴蝶'));
+    expect(events.first.payload['note'], contains('抓蝴蝶'));
+  });
+
+  test('growth questions are not recorded', () {
+    final events =
+        parseLocalCaptures('咪咪今天玩得开心吗', pets).where((e) => e.kind == 'growth');
+    expect(events, isEmpty);
+  });
+
+  test('medical facts take precedence over growth', () {
+    final events = parseLocalCaptures('今天咪咪很开心，但是拉稀了', pets);
+    expect(events.any((e) => e.kind == 'growth'), false);
+    expect(events.any((e) => e.kind == 'medical'), true);
+  });
+
+  test('AI growth JSON maps to a growth event', () {
+    final events = parseCaptureJson(
+      '{"events":[{"kind":"growth","pet":"咪咪",'
+      '"title":"第一次抓到蝴蝶","note":"今天咪咪很开心地抓蝴蝶"}]}',
+      pets,
+    );
+    expect(events.length, 1);
+    expect(events.first.kind, 'growth');
+    expect(events.first.petId, mimi.id);
+    expect(events.first.title, '第一次抓到蝴蝶');
+    expect(events.first.payload['note'], '今天咪咪很开心地抓蝴蝶');
+  });
+
   test('new pet sentence creates a pet event', () {
     final events = parseLocalCaptures(
       '我新养了一只猫叫豆豆，2岁，美短，公的，5斤',
@@ -144,12 +178,14 @@ void main() {
         await request.response.close();
         return;
       }
-      if (request.method == 'DELETE' &&
-          request.uri.path == '/api/pets/p-new') {
+      if (request.method == 'DELETE' && request.uri.path == '/api/pets/p-new') {
         deleted = true;
         request.response.headers.contentType = ContentType.json;
-        request.response.write(
-            jsonEncode({'code': 0, 'message': 'ok', 'data': {'ok': true}}));
+        request.response.write(jsonEncode({
+          'code': 0,
+          'message': 'ok',
+          'data': {'ok': true}
+        }));
         await request.response.close();
         return;
       }

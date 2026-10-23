@@ -74,6 +74,42 @@ const _dietWords = [
   '生骨肉',
 ];
 
+const _growthWords = [
+  '第一次',
+  '学会',
+  '会自己',
+  '玩耍',
+  '玩球',
+  '逗猫棒',
+  '抓蝴蝶',
+  '抓虫',
+  '扑',
+  '追',
+  '晒太阳',
+  '散步',
+  '遛',
+  '打滚',
+  '撒娇',
+  '粘人',
+  '开心',
+  '高兴',
+  '睡姿',
+  '打呼',
+  '生日',
+  '游泳',
+  '爬山',
+  '出门',
+  '可爱',
+];
+
+/// A question or plan is not a completed moment, so it must not become a
+/// growth entry.
+bool _looksLikeQuestion(String text) {
+  if (text.contains('?') || text.contains('？')) return true;
+  return RegExp(r'(吗|呢|怎么|为什么|是不是|要不要|需不需要|能不能|可不可以|如何|什么|哪|多久|多少|什么时候)')
+      .hasMatch(text);
+}
+
 const _recordWorthyWords = [
   ..._symptomWords,
   ..._dietWords,
@@ -153,12 +189,11 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
   final diet = _dietWords.firstWhere(text.contains, orElse: () => '');
   // Only record food when the user describes an action (changed/ate/tried),
   // not when they merely ask for a recommendation.
-  final dietAction =
-      RegExp(r'(换|吃|喂|买|试|用)(了|过|上|成|着)').hasMatch(text) ||
-          text.contains('换粮') ||
-          text.contains('新粮') ||
-          text.contains('一直吃') ||
-          text.contains('在吃');
+  final dietAction = RegExp(r'(换|吃|喂|买|试|用)(了|过|上|成|着)').hasMatch(text) ||
+      text.contains('换粮') ||
+      text.contains('新粮') ||
+      text.contains('一直吃') ||
+      text.contains('在吃');
   if (diet.isNotEmpty && dietAction) {
     final product = _extractProduct(text);
     final title = product.isEmpty ? '饮食记录' : '换粮：$product';
@@ -169,6 +204,20 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
       label: '饮食：${product.isEmpty ? diet : product}',
       title: title.length > 30 ? title.substring(0, 30) : title,
       payload: {'product': product, 'note': text},
+      note: text,
+    ));
+  }
+
+  final growth = _growthWords.firstWhere(text.contains, orElse: () => '');
+  if (growth.isNotEmpty && events.isEmpty && !_looksLikeQuestion(text)) {
+    final title = text.length > 30 ? text.substring(0, 30) : text;
+    events.add(CaptureEvent(
+      kind: 'growth',
+      petId: pet?.id ?? '',
+      petName: pet?.name ?? '',
+      label: '成长：$title',
+      title: title,
+      payload: {'note': text},
       note: text,
     ));
   }
@@ -216,8 +265,8 @@ String _dateOnly(DateTime date) =>
     '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
 CaptureEvent? _parseNewPet(String text) {
-  final hasCue = _newPetCues.any(text.contains) ||
-      RegExp(r'养了(一)?[只条]').hasMatch(text);
+  final hasCue =
+      _newPetCues.any(text.contains) || RegExp(r'养了(一)?[只条]').hasMatch(text);
   if (!hasCue) return null;
   final nameMatch = RegExp(
     r'(?:名字)?叫\s*(?:它|做|为)?\s*([一-龥A-Za-z0-9]{1,10})',
@@ -255,8 +304,7 @@ CaptureEvent? _parseNewPet(String text) {
   }
 
   String birthday = '';
-  final ageMatch =
-      RegExp(r'(\d+(?:\.\d+)?)\s*(岁|个月|月)').firstMatch(text);
+  final ageMatch = RegExp(r'(\d+(?:\.\d+)?)\s*(岁|个月|月)').firstMatch(text);
   if (ageMatch != null) {
     final value = double.tryParse(ageMatch.group(1)!) ?? 0;
     final months =
@@ -276,8 +324,11 @@ CaptureEvent? _parseNewPet(String text) {
     if (weightKg <= 0 || weightKg > 120) weightKg = 0;
   }
 
-  final speciesLabel =
-      species == 'cat' ? '猫' : species == 'dog' ? '狗' : '其他';
+  final speciesLabel = species == 'cat'
+      ? '猫'
+      : species == 'dog'
+          ? '狗'
+          : '其他';
   return CaptureEvent(
     kind: 'pet',
     petId: '',
@@ -321,6 +372,7 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
 {"events":[
  {"kind":"weight|medical|diet","pet":"宠物名字或空字符串","weightKg":2.5,
   "title":"不超过 20 字","note":"原始描述","product":"换粮/食品名称"},
+ {"kind":"growth","pet":"宠物名字或空字符串","title":"不超过 20 字","note":"原始描述"},
  {"kind":"pet","name":"新宠物名字","species":"cat|dog|other","breed":"","sex":"male|female|unknown",
   "birthday":"YYYY-MM-DD 或空","ageMonths":24,"weightKg":2.5,"neutered":"yes|no|unknown","note":"原始描述"}
 ]}
@@ -328,10 +380,13 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
 1. 只提取用户明确陈述、已经发生的事实；提问、假设、计划不要记录。
 2. weight 必须给出公斤数；用户用“斤”时要换算成公斤（1 斤 = 0.5 kg）。
 3. medical 用于症状/就诊，title 用简短症状；diet 用于换粮、食品、配方。
+   growth 用于宠物日常的成长瞬间：玩耍、第一次、学会新本领、开心可爱的小事、出门游玩等，title 概括这件事。
 4. pet 只用于用户明确说“新养/领养/家里来了/捡到”等新加入的宠物，且必须能确定名字；
    已经在列表里的宠物绝不能输出 pet 事件。
 5. 无法确定是哪只宠物时 pet 留空，不要猜。
 6. 没有可记录内容时输出 {"events":[]}；不要编造数值或名字。
+7. 同一句话如果已经输出 weight、medical 或 diet，就不要再输出 growth。
+8. growth 的 title 用用户的原话概括，不要写成医疗建议；note 保留原始描述。
 ''';
 }
 
@@ -382,14 +437,16 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
         }
       }
       final kg = (item['weightKg'] as num?)?.toDouble() ?? 0;
-      final speciesLabel =
-          species == 'cat' ? '猫' : species == 'dog' ? '狗' : '其他';
+      final speciesLabel = species == 'cat'
+          ? '猫'
+          : species == 'dog'
+              ? '狗'
+              : '其他';
       out.add(CaptureEvent(
         kind: 'pet',
         petId: '',
         petName: name,
-        label:
-            '新宠物：$name（$speciesLabel${breed.isEmpty ? '' : ' · $breed'}）',
+        label: '新宠物：$name（$speciesLabel${breed.isEmpty ? '' : ' · $breed'}）',
         payload: {
           'name': name,
           'species': species,
@@ -436,6 +493,18 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
             ? {'symptoms': title, 'note': note}
             : {'product': product, 'note': note},
         note: note,
+      ));
+    } else if (kind == 'growth') {
+      final title = ((item['title'] as String?) ?? '').trim();
+      final resolved = title.isEmpty ? '成长记录' : title;
+      out.add(CaptureEvent(
+        kind: 'growth',
+        petId: pet?.id ?? '',
+        petName: pet?.name ?? petName,
+        label: '成长：$resolved',
+        title: resolved.length > 30 ? resolved.substring(0, 30) : resolved,
+        payload: {'note': note.isEmpty ? resolved : note},
+        note: note.isEmpty ? resolved : note,
       ));
     }
   }

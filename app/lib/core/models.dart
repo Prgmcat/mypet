@@ -199,6 +199,7 @@ class HealthRecord {
         'medication' => '用药',
         'grooming' => '洗护',
         'diet' => '饮食',
+        'growth' => '成长',
         _ => '其他',
       };
 
@@ -353,7 +354,8 @@ class Reminder {
         _ => '📝',
       };
 
-  bool get canAct => role != 'viewer' && status != 'done' && status != 'skipped';
+  bool get canAct =>
+      role != 'viewer' && status != 'done' && status != 'skipped';
 
   Map<String, dynamic> toJson() => {
         'id': id,

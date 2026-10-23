@@ -8,6 +8,7 @@ import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
+import 'growth_page.dart';
 import 'pet_avatar.dart';
 import '../records/record_form_page.dart';
 import '../records/timeline_page.dart';
@@ -113,6 +114,13 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
   Future<void> _openTimeline() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => TimelinePage(pet: _pet)),
+    );
+    if (mounted) _loadDetails();
+  }
+
+  Future<void> _openGrowth() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => GrowthPage(pet: _pet)),
     );
     if (mounted) _loadDetails();
   }
@@ -252,6 +260,12 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final growthRecords = _records
+        .where((record) => record.type == 'growth')
+        .toList(growable: false);
+    final healthRecords = _records
+        .where((record) => record.type != 'growth')
+        .toList(growable: false);
     return Scaffold(
       appBar: AppBar(
         title: Text(_pet.name),
@@ -394,13 +408,34 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
           ),
           const SizedBox(height: 12),
           Card(
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFEAF3EA),
+                child: Text('🌱', style: TextStyle(fontSize: 18)),
+              ),
+              title: Text('成长记录',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                growthRecords.isEmpty
+                    ? '记录第一次、玩耍和日常的小开心'
+                    : '${growthRecords.length} 条 · ${growthRecords.first.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openGrowth,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
             child: Column(
               children: [
                 ListTile(
                   title: Text('健康记录',
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700)),
-                  subtitle: Text('${_records.length} 条记录 · 查看时间线'),
+                  subtitle: Text('${healthRecords.length} 条记录 · 查看时间线'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -446,7 +481,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                       icon: const Icon(Icons.refresh),
                     ),
                   )
-                else if (_records.isEmpty)
+                else if (healthRecords.isEmpty)
                   const Padding(
                     padding: EdgeInsets.fromLTRB(18, 0, 18, 18),
                     child: Align(
@@ -456,7 +491,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
                     ),
                   )
                 else
-                  ..._records.take(20).map(
+                  ...healthRecords.take(20).map(
                         (record) => ListTile(
                           leading: CircleAvatar(
                             backgroundColor: const Color(0xFFF1E4D8),
@@ -542,6 +577,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       'medication' => '💊',
       'grooming' => '🛁',
       'diet' => '🍚',
+      'growth' => '🌱',
       _ => '📝',
     };
   }

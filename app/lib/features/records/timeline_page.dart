@@ -26,6 +26,7 @@ class _TimelinePageState extends ConsumerState<TimelinePage> {
     'medication': '用药',
     'grooming': '洗护',
     'diet': '饮食',
+    'growth': '成长',
     'weight': '体重',
   };
 

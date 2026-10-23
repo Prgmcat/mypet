@@ -464,7 +464,7 @@ func validateRecordInput(in *store.RecordInput) error {
 
 func validRecordType(value string) bool {
 	switch value {
-	case "vaccine", "deworming", "checkup", "medical", "medication", "grooming", "diet", "other":
+	case "vaccine", "deworming", "checkup", "medical", "medication", "grooming", "diet", "growth", "other":
 		return true
 	default:
 		return false
