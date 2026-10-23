@@ -81,6 +81,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     final key = TextEditingController();
     var makeDefault = config.isDefault || _configured.isEmpty;
     var supportsVision = config.supportsVision;
+    var loadingModels = false;
     final formKey = GlobalKey<FormState>();
     final saved = await showDialog<bool>(
       context: context,
@@ -116,7 +117,84 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: model,
-                    decoration: const InputDecoration(labelText: '模型名称'),
+                    decoration: InputDecoration(
+                      labelText: '模型名称',
+                      helperText: '可手动填写，或点右侧按钮拉取厂商模型列表',
+                      suffixIcon: IconButton(
+                        tooltip: '获取模型列表',
+                        onPressed: loadingModels
+                            ? null
+                            : () async {
+                                final keyText = key.text.trim().isNotEmpty
+                                    ? key.text.trim()
+                                    : (await AiConfigStore.apiKey(
+                                            _userId, config.id) ??
+                                        '');
+                                if (keyText.isEmpty) {
+                                  _snack('请先填写 API Key');
+                                  return;
+                                }
+                                setDialogState(() => loadingModels = true);
+                                try {
+                                  final models =
+                                      await AiClient().fetchModels(
+                                    config: config.copyWith(
+                                      name: name.text.trim(),
+                                      baseUrl: baseUrl.text.trim(),
+                                      model: model.text.trim(),
+                                    ),
+                                    apiKey: keyText,
+                                  );
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  if (models.isEmpty) {
+                                    _snack('没有返回可用模型，可手动填写');
+                                    return;
+                                  }
+                                  final picked =
+                                      await showModalBottomSheet<String>(
+                                    context: context,
+                                    showDragHandle: true,
+                                    builder: (sheetContext) => ListView(
+                                      children: [
+                                        const ListTile(
+                                          title: Text('选择模型',
+                                              style: TextStyle(
+                                                  fontWeight:
+                                                      FontWeight.w700)),
+                                        ),
+                                        for (final m in models)
+                                          ListTile(
+                                            title: Text(m),
+                                            onTap: () => Navigator.pop(
+                                                sheetContext, m),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                  if (picked != null && context.mounted) {
+                                    setDialogState(() => model.text = picked);
+                                  }
+                                } on AiException catch (e) {
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  _snack(e.message);
+                                } catch (_) {
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  _snack('获取模型列表失败，请检查地址和 Key');
+                                }
+                              },
+                        icon: loadingModels
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.list_alt),
+                      ),
+                    ),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? '请输入模型名称' : null,
                   ),
@@ -192,6 +270,8 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
         if (mounted) _snack('已保存');
       }
     }
+    // Let the dialog's closing animation finish before releasing controllers.
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     baseUrl.dispose();
     model.dispose();
     name.dispose();
@@ -303,6 +383,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     final key = TextEditingController();
     var kind = 'openai';
     var supportsVision = false;
+    var loadingModels = false;
     final formKey = GlobalKey<FormState>();
     final ok = await showDialog<bool>(
       context: context,
@@ -343,7 +424,82 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: model,
-                    decoration: const InputDecoration(labelText: '模型名称'),
+                    decoration: InputDecoration(
+                      labelText: '模型名称',
+                      helperText: '可手动填写，或点右侧按钮拉取厂商模型列表',
+                      suffixIcon: IconButton(
+                        tooltip: '获取模型列表',
+                        onPressed: loadingModels
+                            ? null
+                            : () async {
+                                final keyText = key.text.trim();
+                                if (keyText.isEmpty) {
+                                  _snack('请先填写 API Key');
+                                  return;
+                                }
+                                setDialogState(() => loadingModels = true);
+                                try {
+                                  final models =
+                                      await AiClient().fetchModels(
+                                    config: AiProviderConfig(
+                                      id: '__draft__',
+                                      name: name.text.trim(),
+                                      kind: kind,
+                                      baseUrl: baseUrl.text.trim(),
+                                      model: model.text.trim(),
+                                    ),
+                                    apiKey: keyText,
+                                  );
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  if (models.isEmpty) {
+                                    _snack('没有返回可用模型，可手动填写');
+                                    return;
+                                  }
+                                  final picked =
+                                      await showModalBottomSheet<String>(
+                                    context: context,
+                                    showDragHandle: true,
+                                    builder: (sheetContext) => ListView(
+                                      children: [
+                                        const ListTile(
+                                          title: Text('选择模型',
+                                              style: TextStyle(
+                                                  fontWeight:
+                                                      FontWeight.w700)),
+                                        ),
+                                        for (final m in models)
+                                          ListTile(
+                                            title: Text(m),
+                                            onTap: () => Navigator.pop(
+                                                sheetContext, m),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                  if (picked != null && context.mounted) {
+                                    setDialogState(() => model.text = picked);
+                                  }
+                                } on AiException catch (e) {
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  _snack(e.message);
+                                } catch (_) {
+                                  if (!context.mounted) return;
+                                  setDialogState(() => loadingModels = false);
+                                  _snack('获取模型列表失败，请检查地址和 Key');
+                                }
+                              },
+                        icon: loadingModels
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.list_alt),
+                      ),
+                    ),
                     validator: (v) => (v == null || v.trim().isEmpty)
                         ? '请输入模型名称'
                         : null,
@@ -401,6 +557,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       await _load();
       if (mounted) _snack('已添加 ${config.name}');
     }
+    await Future<void>.delayed(const Duration(milliseconds: 350));
     name.dispose();
     baseUrl.dispose();
     model.dispose();

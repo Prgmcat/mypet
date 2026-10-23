@@ -185,6 +185,38 @@ void main() {
     }
   });
 
+  test('fetchModels returns the provider catalogue', () async {
+    final server = await startServer((request) async {
+      expect(request.uri.path, '/v1/models');
+      expect(request.headers.value('authorization'), 'Bearer sk-test');
+      final body = jsonEncode({
+        'data': [
+          {'id': 'deepseek-reasoner'},
+          {'id': 'deepseek-chat'},
+        ],
+      });
+      request.response.statusCode = 200;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(body);
+      await request.response.close();
+    });
+    try {
+      final models = await AiClient().fetchModels(
+        config: AiProviderConfig(
+          id: 'deepseek',
+          name: 'DeepSeek',
+          kind: 'openai',
+          baseUrl: 'http://127.0.0.1:${server.port}/v1',
+          model: 'deepseek-chat',
+        ),
+        apiKey: 'sk-test',
+      );
+      expect(models, ['deepseek-chat', 'deepseek-reasoner']);
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
   test('HTTP errors surface provider message', () async {
     final server = await startServer((request) async {
       request.response.statusCode = 401;

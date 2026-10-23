@@ -194,6 +194,54 @@ class AiClient {
     }
   }
 
+  /// Fetches the provider's own model list so the UI never relies on a stale
+  /// hard-coded catalogue.
+  Future<List<String>> fetchModels({
+    required AiProviderConfig config,
+    required String apiKey,
+  }) async {
+    if (apiKey.trim().isEmpty) throw AiException('请先填写 API Key');
+    final base = _trimSlash(config.baseUrl);
+    if (base.isEmpty) throw AiException('请先填写 Base URL');
+    try {
+      final Response<dynamic> response;
+      if (config.kind == 'anthropic') {
+        response = await _dio.get(
+          '$base/v1/models',
+          options: Options(headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          }),
+        );
+      } else {
+        response = await _dio.get(
+          '$base/models',
+          options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
+        );
+      }
+      final data = response.data;
+      final list = data is Map<String, dynamic> ? data['data'] : null;
+      if (list is! List) {
+        throw AiException('服务商没有返回模型列表');
+      }
+      final models = <String>[];
+      for (final item in list) {
+        if (item is Map) {
+          final id = item['id'];
+          if (id is String && id.isNotEmpty) models.add(id);
+        }
+      }
+      models.sort();
+      return models;
+    } on DioException catch (e) {
+      if (e.response != null) {
+        throw AiException(_errorText(e.response!.data,
+            fallback: 'HTTP ${e.response!.statusCode}'));
+      }
+      throw AiException(_networkMessage(e));
+    }
+  }
+
   /// Tests credentials without spending meaningful tokens.
   Future<String> testConnection({
     required AiProviderConfig config,
