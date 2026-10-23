@@ -59,6 +59,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   String _streamingText = '';
   bool _sending = false;
   bool _listening = false;
+  bool _voiceGotText = false;
+  bool _voiceHadError = false;
   String? _error;
   CancelToken? _cancelToken;
   bool _showRedCard = false;
@@ -291,6 +293,14 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         ? List<String>.from(retryImages ?? const [])
         : List<String>.from(_pendingImages);
     if (text.isEmpty && images.isEmpty) return;
+    if (_listening) {
+      try {
+        await _speech.stop();
+      } catch (_) {
+        // Ignore.
+      }
+      _listening = false;
+    }
     if (!_configLoaded) {
       await _loadConfig();
       if (!mounted) return;
@@ -615,42 +625,115 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
 
   Future<void> _toggleVoice() async {
     if (_listening) {
-      await _speech.stop();
+      try {
+        await _speech.stop();
+      } catch (_) {
+        // Ignore: stopping an already-finished session is harmless.
+      }
       if (mounted) setState(() => _listening = false);
       return;
     }
-    final available = await _speech.initialize(
-      onStatus: (status) {
-        if (status == 'done' || status == 'notListening') {
-          if (mounted) setState(() => _listening = false);
-        }
-      },
-      onError: (_) {
-        if (mounted) setState(() => _listening = false);
-      },
-    );
-    if (!available) {
-      _snack('语音识别不可用，可以继续用键盘输入');
-      return;
-    }
-    final locales = await _speech.locales();
-    final chinese = locales
-        .where((l) => l.localeId.toLowerCase().startsWith('zh'))
-        .map((l) => l.localeId)
-        .toList();
-    await _speech.listen(
-      onResult: (result) {
-        if (!mounted) return;
-        _input.text = result.recognizedWords;
-        _input.selection = TextSelection.fromPosition(
-          TextPosition(offset: _input.text.length),
+    try {
+      final available = await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            if (!mounted) return;
+            final missed = !_voiceGotText && !_voiceHadError;
+            setState(() => _listening = false);
+            if (missed) {
+              showToast(
+                context,
+                '没有识别到内容，请再说一次，或用键盘上的语音键',
+                error: true,
+              );
+            }
+          }
+        },
+        onError: (error) {
+          if (!mounted) return;
+          _voiceHadError = true;
+          setState(() => _listening = false);
+          showToast(
+            context,
+            _voiceErrorText(error.errorMsg, permanent: error.permanent),
+            error: true,
+          );
+        },
+      );
+      if (!mounted) return;
+      if (!available) {
+        showToast(
+          context,
+          '语音识别不可用：系统没有可用的语音服务，请直接用键盘或键盘上的语音键',
+          error: true,
         );
-        setState(() {});
-      },
-      localeId: chinese.isNotEmpty ? chinese.first : null,
-      listenMode: ListenMode.dictation,
-    );
-    if (mounted) setState(() => _listening = true);
+        return;
+      }
+      _voiceGotText = false;
+      _voiceHadError = false;
+      String? locale;
+      try {
+        final locales = await _speech.locales();
+        for (final item in locales) {
+          final id = item.localeId.toLowerCase();
+          if (id.startsWith('zh-cn') || id.startsWith('zh_cn')) {
+            locale = item.localeId;
+            break;
+          }
+        }
+        if (locale == null) {
+          for (final item in locales) {
+            if (item.localeId.toLowerCase().startsWith('zh')) {
+              locale = item.localeId;
+              break;
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back to the system default locale.
+      }
+      await _speech.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          if (result.recognizedWords.trim().isNotEmpty) _voiceGotText = true;
+          _input.text = result.recognizedWords;
+          _input.selection = TextSelection.fromPosition(
+            TextPosition(offset: _input.text.length),
+          );
+          setState(() {});
+        },
+        localeId: locale,
+        listenMode: ListenMode.dictation,
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 4),
+        partialResults: true,
+        cancelOnError: true,
+      );
+      if (mounted) setState(() => _listening = true);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _listening = false);
+      showToast(context, '语音识别启动失败，请检查麦克风权限或改用键盘输入', error: true);
+    }
+  }
+
+  String _voiceErrorText(String code, {bool permanent = false}) {
+    switch (code) {
+      case 'error_no_match':
+        return '没听清，请再说一次';
+      case 'error_speech_timeout':
+        return '没有检测到说话，已停止';
+      case 'error_network':
+      case 'error_network_timeout':
+        return '语音服务网络不可用，请检查网络或改用键盘输入';
+      case 'error_audio':
+      case 'error_client':
+        return '麦克风不可用，请检查麦克风权限';
+      case 'error_busy':
+        return '语音识别正忙，请稍后再试';
+      default:
+        return permanent ? '系统语音服务不可用，请改用键盘输入' : '语音识别失败，请再说一次或改用键盘';
+    }
   }
 
   Future<void> _pickImages() async {
@@ -1014,6 +1097,23 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     showToast(context, message);
   }
 
+  Widget _inputIcon(
+    IconData icon, {
+    required String tooltip,
+    VoidCallback? onPressed,
+    Color? color,
+  }) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 22),
+      color: color,
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1220,6 +1320,30 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             ),
           if (_pendingCaptures.isNotEmpty) _pendingCaptureCard(),
           if (_pendingImages.isNotEmpty) _pendingImagesStrip(),
+          if (_listening)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 8,
+                    height: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    '正在听…说完后点麦克风停止',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
           SafeArea(
             top: false,
             child: Padding(
@@ -1239,13 +1363,12 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                   ],
                 ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: _pickingImages ? null : _pickImages,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                    _inputIcon(
+                      Icons.add_photo_alternate_outlined,
                       tooltip: '发送图片',
+                      onPressed: _pickingImages ? null : _pickImages,
                     ),
                     Expanded(
                       child: TextField(
@@ -1253,34 +1376,43 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                         minLines: 1,
                         maxLines: 4,
                         textInputAction: TextInputAction.newline,
+                        style: const TextStyle(fontSize: 14, height: 1.4),
                         decoration: const InputDecoration(
                           hintText: '发消息或按住说话…',
                           border: InputBorder.none,
                           filled: false,
                           isDense: true,
                           contentPadding:
-                              EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                              EdgeInsets.symmetric(horizontal: 4, vertical: 10),
                         ),
                       ),
                     ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: _toggleVoice,
-                      icon: Icon(_listening ? Icons.mic : Icons.mic_none),
-                      color: _listening ? Colors.red : null,
+                    _inputIcon(
+                      _listening ? Icons.mic : Icons.mic_none,
                       tooltip: _listening ? '停止语音' : '语音输入',
+                      color: _listening ? Colors.red : null,
+                      onPressed: _toggleVoice,
                     ),
                     const SizedBox(width: 2),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
+                    SizedBox(
+                      width: 40,
+                      height: 40,
                       child: _sending
                           ? IconButton.filled(
                               onPressed: _stop,
+                              padding: EdgeInsets.zero,
+                              iconSize: 20,
+                              constraints: const BoxConstraints.tightFor(
+                                  width: 40, height: 40),
                               icon: const Icon(Icons.stop),
                               tooltip: '停止生成',
                             )
                           : IconButton.filled(
                               onPressed: () => _send(),
+                              padding: EdgeInsets.zero,
+                              iconSize: 20,
+                              constraints: const BoxConstraints.tightFor(
+                                  width: 40, height: 40),
                               icon: const Icon(Icons.arrow_upward),
                               tooltip: '发送',
                             ),
