@@ -8,7 +8,6 @@ import '../../core/toast.dart';
 import '../../core/cache.dart';
 import '../../core/models.dart';
 import '../../core/session.dart';
-import '../ocr/ocr_page.dart';
 import 'pet_avatar.dart';
 import '../records/record_form_page.dart';
 import '../records/timeline_page.dart';
@@ -209,13 +208,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
     }
   }
 
-  Future<void> _openOcr() async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => OcrPage(pet: _pet)),
-    );
-    if (changed == true) _loadDetails();
-  }
-
   Future<void> _edit() async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => PetFormPage(pet: _pet)),
@@ -264,12 +256,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       appBar: AppBar(
         title: Text(_pet.name),
         actions: [
-          if (_canEditRecords)
-            IconButton(
-              onPressed: _openOcr,
-              icon: const Icon(Icons.document_scanner_outlined),
-              tooltip: '拍照识别化验单',
-            ),
           if (_pet.isOwner)
             IconButton(
               onPressed: _openShare,

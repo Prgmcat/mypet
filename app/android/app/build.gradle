@@ -68,7 +68,4 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
-    // Only Chinese text recognition is used. The plugin references the other
-    // scripts as compileOnly, so unused ones are silenced in proguard rules.
-    implementation 'com.google.mlkit:text-recognition-chinese:16.0.0'
 }

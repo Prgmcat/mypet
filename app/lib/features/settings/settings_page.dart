@@ -262,12 +262,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         content: const SingleChildScrollView(
           child: Text(
             '版本 1.0.0\n\n'
-            '数据自持的宠物档案 App：宠物档案、健康记录、拍照 OCR、AI 助手、'
+            '数据自持的宠物档案 App：宠物档案、健康记录、AI 助手、'
             '本地提醒与共享协作。\n\n'
             '隐私说明：\n'
             '· 数据只保存在你自己的服务器上；\n'
             '· 管理员默认不能查看用户的宠物与记录；\n'
-            '· 相册/相机仅用于记录与 OCR，麦克风仅用于语音输入；\n'
+            '· 相册/相机仅用于头像与记录配图，麦克风仅用于语音输入；\n'
             '· 访客链接只展示照护必需信息，可随时撤销。\n\n'
             'AI/医疗免责声明：\n'
             'AI 生成内容仅供参考，不能替代兽医面诊；'
