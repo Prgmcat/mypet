@@ -21,7 +21,6 @@
 ## Android 资源
 
 - `mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png`：传统方形图标
-- `.../ic_launcher_round.png`：圆形图标
 - `.../ic_launcher_foreground.png`：自适应图标前景（108dp 画布，安全区内）
-- `mipmap-anydpi-v26/ic_launcher.xml`、`ic_launcher_round.xml`：自适应图标
+- `mipmap-anydpi-v26/ic_launcher.xml`：自适应图标
 - `values/colors.xml`：`ic_launcher_background`
