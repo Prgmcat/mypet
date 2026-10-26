@@ -46,9 +46,15 @@ class _AssistantDrawerState extends ConsumerState<AssistantDrawer> {
 
   void _close() => Navigator.of(context).pop();
 
-  void _open(Widget page) {
-    _close();
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  Future<void> _open(Widget page, {bool keepDrawer = false}) async {
+    if (!keepDrawer) {
+      _close();
+    }
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    if (keepDrawer && mounted) {
+      // Keep the drawer visible after returning from the pushed page.
+      Scaffold.maybeOf(context)?.openDrawer();
+    }
   }
 
   Future<void> _delete(AiSession session) async {
@@ -107,7 +113,7 @@ class _AssistantDrawerState extends ConsumerState<AssistantDrawer> {
             ListTile(
               leading: const Icon(Icons.settings_outlined),
               title: const Text('设置'),
-              onTap: () => _open(const SettingsPage()),
+              onTap: () => _open(const SettingsPage(), keepDrawer: true),
             ),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
