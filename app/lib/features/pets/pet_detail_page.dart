@@ -400,27 +400,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
           Card(
             child: ListTile(
               leading: const CircleAvatar(
-                backgroundColor: Color(0xFFEAF3EA),
-                child: Text('🌱', style: TextStyle(fontSize: 18)),
-              ),
-              title: Text('成长记录',
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w700)),
-              subtitle: Text(
-                growthRecords.isEmpty
-                    ? '还没有记录'
-                    : '${growthRecords.length} 条 · ${growthRecords.first.title}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _openGrowth,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const CircleAvatar(
                 backgroundColor: Color(0xFFF1E4D8),
                 child: Text('🩺', style: TextStyle(fontSize: 18)),
               ),
@@ -457,6 +436,27 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: _openWeights,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFEAF3EA),
+                child: Text('🌱', style: TextStyle(fontSize: 18)),
+              ),
+              title: Text('成长记录',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                growthRecords.isEmpty
+                    ? '还没有记录'
+                    : '${growthRecords.length} 条 · ${growthRecords.first.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openGrowth,
             ),
           ),
         ],
