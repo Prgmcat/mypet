@@ -1309,16 +1309,36 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
               child: _session.messages.isEmpty && _streamingText.isEmpty
                   ? _emptyState()
                   : SelectionArea(
-                      child: ListView(
-                        controller: _scroll,
-                        reverse: true,
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                        children: [
-                          if (_error != null) _errorBanner(),
-                          if (_streamingText.isNotEmpty) _streamingBubble(),
-                          for (final message in _session.messages.reversed)
-                            _bubble(message),
-                        ],
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SingleChildScrollView(
+                            controller: _scroll,
+                            reverse: true,
+                            child: ConstrainedBox(
+                              // Fill the viewport so short conversations sit
+                              // at the top instead of being pinned to the
+                              // bottom by the reversed scroll direction.
+                              constraints: BoxConstraints(
+                                minHeight: constraints.maxHeight,
+                              ),
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    for (final message in _session.messages)
+                                      _bubble(message),
+                                    if (_streamingText.isNotEmpty)
+                                      _streamingBubble(),
+                                    if (_error != null) _errorBanner(),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
             ),
