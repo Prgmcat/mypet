@@ -229,31 +229,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     navigator.popUntil((route) => route.isFirst);
   }
 
-  void _showDataInfo() {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('数据与备份'),
-        content: const SingleChildScrollView(
-          child: Text(
-            '所有宠物与记录都保存在你自托管的服务器上，App 只保留少量只读缓存。\n\n'
-            '备份在服务器本机执行：\n'
-            'mypet backup -data ./data -out ./backup\n\n'
-            '备份包含 SQLite 数据库与附件目录。恢复前会先备份当前数据；'
-            '请把备份文件保存在安全位置，建议加密。\n\n'
-            'AI 服务的 API Key 只保存在本机安全存储中，不会上传服务端。',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('知道了'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showAbout() {
     showDialog<void>(
       context: context,
@@ -414,14 +389,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           Card(
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.backup_outlined),
-                  title: const Text('数据与备份'),
-                  subtitle: const Text('备份在服务器本机执行'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _showDataInfo,
-                ),
-                const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
                   leading: const Icon(Icons.info_outline),
                   title: const Text('关于与隐私'),
