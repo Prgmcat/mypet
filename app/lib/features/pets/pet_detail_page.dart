@@ -10,7 +10,6 @@ import '../../core/models.dart';
 import '../../core/session.dart';
 import 'growth_page.dart';
 import 'pet_avatar.dart';
-import '../records/record_form_page.dart';
 import '../records/timeline_page.dart';
 import '../records/weight_page.dart';
 import '../sharing/pet_share_page.dart';
@@ -93,22 +92,13 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
     });
   }
 
-  bool get _canEditRecords => _pet.role != 'viewer';
-
-  Future<void> _addRecord() async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => RecordFormPage(pet: _pet)),
-    );
-    if (changed == true) _loadDetails();
-  }
-
-  Future<void> _editRecord(HealthRecord record) async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => RecordFormPage(pet: _pet, record: record),
-      ),
-    );
-    if (changed == true) _loadDetails();
+  String _healthSubtitle(List<HealthRecord> records) {
+    if (_loadingDetails) return '加载中…';
+    if (_detailsError != null) return '加载失败，点击查看';
+    final base = records.isEmpty
+        ? '还没有记录'
+        : '${records.length} 条 · ${records.first.title}';
+    return _offline ? '离线 · $base' : base;
   }
 
   Future<void> _openTimeline() async {
@@ -429,138 +419,44 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
           ),
           const SizedBox(height: 12),
           Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: Text('健康记录',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700)),
-                  subtitle: Text('${healthRecords.length} 条记录 · 查看时间线'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: '时间线',
-                        onPressed: _openTimeline,
-                        icon: const Icon(Icons.timeline, size: 20),
-                      ),
-                      if (_canEditRecords)
-                        TextButton.icon(
-                          onPressed: _addRecord,
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text('添加'),
-                        ),
-                    ],
-                  ),
-                  onTap: _openTimeline,
-                ),
-                if (_loadingDetails)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: LinearProgressIndicator(minHeight: 2),
-                  )
-                else if (_offline)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(18, 0, 18, 10),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '离线：显示最近缓存记录',
-                        style:
-                            TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
-                      ),
-                    ),
-                  )
-                else if (_detailsError != null)
-                  ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.error_outline, color: Colors.red),
-                    title: Text(_detailsError!),
-                    trailing: IconButton(
-                      onPressed: _loadDetails,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  )
-                else if (healthRecords.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(18, 0, 18, 18),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('还没有健康记录，先添加一条疫苗或驱虫记录。',
-                          style: TextStyle(color: Colors.black54)),
-                    ),
-                  )
-                else
-                  ...healthRecords.take(20).map(
-                        (record) => ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: const Color(0xFFF1E4D8),
-                            child: Text(
-                              _recordEmoji(record.type),
-                              style: const TextStyle(fontSize: 18),
-                            ),
-                          ),
-                          title: Text(record.title),
-                          subtitle: Text(
-                            [
-                              record.occurredAt,
-                              if (record.summary.isNotEmpty) record.summary,
-                            ].join(' · '),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          trailing: record.attachments.isEmpty
-                              ? null
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.attachment, size: 16),
-                                    Text('${record.attachments.length}'),
-                                  ],
-                                ),
-                          onTap: _canEditRecords
-                              ? () => _editRecord(record)
-                              : null,
-                        ),
-                      ),
-              ],
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFF1E4D8),
+                child: Text('🩺', style: TextStyle(fontSize: 18)),
+              ),
+              title: Text('健康记录',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                _healthSubtitle(healthRecords),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openTimeline,
             ),
           ),
           const SizedBox(height: 12),
           Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: Text('体重',
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700)),
-                  subtitle: Text(
-                    _weights.isEmpty
-                        ? (_pet.currentWeightKg > 0
-                            ? '当前 ${_pet.currentWeightKg.toStringAsFixed(1)} kg'
-                            : '还没有体重记录')
-                        : '最近 ${_weights.last.weightKg.toStringAsFixed(1)} kg · ${_weights.last.measuredAt}',
-                  ),
-                  trailing: TextButton.icon(
-                    onPressed: _openWeights,
-                    icon: const Icon(Icons.show_chart, size: 18),
-                    label: Text(_weights.length >= 2 ? '曲线' : '记录'),
-                  ),
-                  onTap: _openWeights,
-                ),
-                if (_weights.length >= 2)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '共 ${_weights.length} 次记录，点击查看体重曲线。',
-                        style: const TextStyle(
-                            color: Colors.black54, fontSize: 12),
-                      ),
-                    ),
-                  ),
-              ],
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: Color(0xFFEAF3EA),
+                child: Text('⚖️', style: TextStyle(fontSize: 18)),
+              ),
+              title: Text('体重',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                _weights.isEmpty
+                    ? (_pet.currentWeightKg > 0
+                        ? '当前 ${_pet.currentWeightKg.toStringAsFixed(1)} kg'
+                        : '还没有体重记录')
+                    : '最近 ${_weights.last.weightKg.toStringAsFixed(1)} kg · ${_weights.last.measuredAt}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openWeights,
             ),
           ),
         ],
@@ -568,19 +464,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
     );
   }
 
-  String _recordEmoji(String type) {
-    return switch (type) {
-      'vaccine' => '💉',
-      'deworming' => '💊',
-      'checkup' => '🩺',
-      'medical' => '📋',
-      'medication' => '💊',
-      'grooming' => '🛁',
-      'diet' => '🍚',
-      'growth' => '🌱',
-      _ => '📝',
-    };
-  }
 }
 
 class _InfoRow extends StatelessWidget {
