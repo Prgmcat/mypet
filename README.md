@@ -93,12 +93,28 @@ Release APK（按 ABI 拆分，单个 ≤ 45 MB）：
 ```bash
 flutter build apk --release --split-per-abi
 # 产物：
-# app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   (~30 MB)
-# app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk (~24 MB)
-# app/build/app/outputs/flutter-apk/app-x86_64-release.apk      (~32 MB，模拟器)
+# app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk   (~20 MB)
+# app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk (~18 MB)
+# app/build/app/outputs/flutter-apk/app-x86_64-release.apk      (~21 MB，模拟器)
 ```
 
 > 注意：`flutter build apk`（不拆分）会包含所有 ABI 的原生库，体积更大；分发请用 `--split-per-abi`。Debug APK 还包含 Vulkan 校验层，体积异常大，不用于分发。
+
+服务端 release 二进制（纯 Go SQLite，无需 CGO，可交叉编译）：
+
+```bash
+cd server
+LD="-s -w -X main.version=1.0.0"
+go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-windows-amd64.exe ./cmd/mypet
+GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-linux-amd64  ./cmd/mypet
+GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-linux-arm64  ./cmd/mypet
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-darwin-amd64 ./cmd/mypet
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-darwin-arm64 ./cmd/mypet
+```
+
+完整产物（APK + 服务端）统一放在项目根目录 `dist/`，该目录已在 `.gitignore` 中忽略。
+
+> 当前 release APK 使用 Android 调试证书签名，适合内测安装；正式分发前需配置 release keystore。
 
 开发版允许 HTTP 明文（`android:usesCleartextTraffic="true"`），正式环境应使用 HTTPS 或 Tailscale/WireGuard。
 

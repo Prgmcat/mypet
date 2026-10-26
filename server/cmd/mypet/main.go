@@ -20,7 +20,8 @@ import (
 	"github.com/Prgmcat/mypet/server/internal/store"
 )
 
-const version = "0.1.0-dev"
+// version 可被发布构建覆盖：-ldflags "-X main.version=1.0.0"
+var version = "0.1.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
