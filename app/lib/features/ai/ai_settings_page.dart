@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ai/ai_client.dart';
 import '../../core/toast.dart';
 import '../../core/ai/ai_config.dart';
+import '../../core/ai/ai_config_transfer.dart';
 import '../../core/session.dart';
 
 class AiSettingsPage extends ConsumerStatefulWidget {
@@ -576,9 +578,296 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
     key.dispose();
   }
 
-  void _snack(String message) {
+  void _snack(String message, {bool error = false}) {
     if (!mounted) return;
-    showToast(context, message);
+    showToast(context, message, error: error);
+  }
+
+  Future<String?> _askPassword({
+    required String title,
+    required bool confirmExport,
+  }) async {
+    final first = TextEditingController();
+    final second = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  confirmExport
+                      ? '加密字符串会用这个密码加密。忘记密码将无法恢复，请妥善保存。'
+                      : '输入导出时设置的密码，用于解密配置字符串。',
+                  style: const TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: first,
+                  autofocus: true,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '密码'),
+                  validator: (value) {
+                    final text = value ?? '';
+                    if (confirmExport && text.length < 8) return '至少 8 位';
+                    if (!confirmExport && text.isEmpty) return '请输入密码';
+                    return null;
+                  },
+                ),
+                if (confirmExport) ...[
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: second,
+                    obscureText: true,
+                    decoration: const InputDecoration(labelText: '确认密码'),
+                    validator: (value) =>
+                        value != first.text ? '两次密码不一致' : null,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(dialogContext, first.text);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    first.dispose();
+    second.dispose();
+    return result;
+  }
+
+  Future<void> _exportConfigs() async {
+    final configured = _configured;
+    if (configured.isEmpty) {
+      _snack('还没有可导出的 API Key 配置');
+      return;
+    }
+    final password =
+        await _askPassword(title: '导出 AI 配置', confirmExport: true);
+    if (password == null || !mounted) return;
+    final keys = <String, String>{};
+    for (final config in configured) {
+      final key = await AiConfigStore.apiKey(_userId, config.id);
+      if (key != null && key.isNotEmpty) keys[config.id] = key;
+    }
+    if (keys.isEmpty) {
+      _snack('还没有可导出的 API Key 配置');
+      return;
+    }
+    try {
+      final text = await AiConfigTransfer.exportString(
+        configs: _configs,
+        keys: keys,
+        password: password,
+        serverUrl: ref.read(sessionProvider).serverUrl,
+      );
+      if (!mounted) return;
+      await _showExportedString(text);
+    } catch (e) {
+      _snack('导出失败：$e', error: true);
+    }
+  }
+
+  Future<void> _showExportedString(String value) async {
+    final controller = TextEditingController(text: value);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('加密配置已生成'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '复制下面整段字符串，在另一台设备选择「导入配置」后粘贴。',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              readOnly: true,
+              maxLines: 6,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: const InputDecoration(hintText: '加密配置'),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '字符串已加密，密码不会保存；请通过安全渠道传递。',
+              style: TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: value));
+              if (!mounted) return;
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              _snack('已复制加密配置');
+            },
+            icon: const Icon(Icons.copy, size: 18),
+            label: const Text('复制'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+  }
+
+  Future<_ImportInput?> _askImportInput() async {
+    final value = TextEditingController();
+    final password = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final result = await showDialog<_ImportInput>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('导入 AI 配置'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '粘贴另一台设备导出的加密字符串，并输入导出时设置的密码。',
+                  style: TextStyle(fontSize: 13, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: value,
+                  maxLines: 6,
+                  style:
+                      const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  decoration: const InputDecoration(
+                    labelText: '加密配置',
+                    hintText: 'MYPETAI:...',
+                  ),
+                  validator: (text) =>
+                      (text ?? '').trim().isEmpty ? '请粘贴加密配置' : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: password,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: '密码'),
+                  validator: (text) =>
+                      (text ?? '').isEmpty ? '请输入密码' : null,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(
+                dialogContext,
+                _ImportInput(value.text.trim(), password.text),
+              );
+            },
+            child: const Text('导入'),
+          ),
+        ],
+      ),
+    );
+    value.dispose();
+    password.dispose();
+    return result;
+  }
+
+  Future<void> _importConfigs() async {
+    final input = await _askImportInput();
+    if (input == null || !mounted) return;
+    if (input.value.length > 300000) {
+      _snack('配置字符串过长', error: true);
+      return;
+    }
+    try {
+      final imported = await AiConfigTransfer.importString(
+        value: input.value,
+        password: input.password,
+      );
+      if (!mounted) return;
+      final currentServer = ref.read(sessionProvider).serverUrl;
+      if (imported.serverUrl != null && imported.serverUrl != currentServer) {
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('配置来自其他服务器'),
+            content: Text(
+              '这份配置导出于 ${imported.serverUrl}\n'
+              '当前服务器是 $currentServer\n\n'
+              '仍要导入到当前账号吗？',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('导入'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true) return;
+      }
+      final byId = <String, AiProviderConfig>{
+        for (final config in _configs) config.id: config,
+      };
+      for (final config in imported.configs) {
+        byId[config.id] = config;
+      }
+      final merged = byId.values.toList();
+      final importedDefault =
+          imported.configs.where((config) => config.isDefault).toList();
+      if (importedDefault.isNotEmpty) {
+        final defaultId = importedDefault.first.id;
+        for (var i = 0; i < merged.length; i++) {
+          merged[i] = merged[i].copyWith(isDefault: merged[i].id == defaultId);
+        }
+      }
+      await AiConfigStore.save(_userId, merged);
+      for (final entry in imported.keys.entries) {
+        await AiConfigStore.setApiKey(_userId, entry.key, entry.value);
+      }
+      await _load();
+      if (!mounted) return;
+      _snack('已导入 ${imported.configs.length} 个服务商配置');
+    } on FormatException catch (e) {
+      _snack(e.message, error: true);
+    } catch (e) {
+      _snack('导入失败：$e', error: true);
+    }
   }
 
   @override
@@ -589,6 +878,20 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       appBar: AppBar(
         title: const Text('AI 服务设置'),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: '导入/导出配置',
+            onSelected: (value) {
+              if (value == 'import') {
+                _importConfigs();
+              } else if (value == 'export') {
+                _exportConfigs();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'import', child: Text('导入配置')),
+              PopupMenuItem(value: 'export', child: Text('导出配置')),
+            ],
+          ),
           IconButton(
             onPressed: _addService,
             icon: const Icon(Icons.add),
@@ -607,6 +910,7 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
                     child: Text(
                       'AI 请求由手机直连模型厂商，服务端不接收、不代理。\n'
                       'API Key 只保存在本机安全存储，按账号隔离，界面只显示末 4 位。\n'
+                      '右上角菜单可加密导入/导出配置字符串；密码不保存，忘记后无法恢复。\n'
                       '模型费用由你与厂商结算；AI 内容仅供参考，不能替代兽医。',
                       style: TextStyle(fontSize: 13, height: 1.6),
                     ),
@@ -748,4 +1052,11 @@ class _AiSettingsPageState extends ConsumerState<AiSettingsPage> {
       ),
     );
   }
+}
+
+class _ImportInput {
+  const _ImportInput(this.value, this.password);
+
+  final String value;
+  final String password;
 }

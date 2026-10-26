@@ -131,6 +131,7 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../d
 ## AI
 
 - **AI Key 只保存在 Android Keystore（按账号隔离）**，服务端不接收、不代理；界面只显示末 4 位。
+- AI 服务设置支持以加密字符串导入/导出配置：AES-256-GCM + PBKDF2，密码不保存，忘记后无法恢复。
 - 支持 OpenAI 兼容协议（OpenAI、DeepSeek、通义千问、Moonshot、智谱、Gemini 兼容端点）与 Anthropic Messages API；Base URL 与模型可自定义。
 - 首次提问前需在「设置 → AI 服务设置」配置 Key；未配置时不会发起请求。
 - AI 回答标注“AI 生成，仅供参考”；本地红线词库独立展示 L3 就医卡，不依赖模型输出。
