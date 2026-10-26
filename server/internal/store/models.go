@@ -161,6 +161,41 @@ type ReminderInstance struct {
 	Role           string `json:"role,omitempty"`
 }
 
+// Appointment is a one-off care plan. Completing it writes a linked health
+// record, but it does not participate in the periodic reminder rules.
+type Appointment struct {
+	ID             string `json:"id"`
+	PetID          string `json:"petId"`
+	PetName        string `json:"petName,omitempty"`
+	Type           string `json:"type"`
+	Title          string `json:"title"`
+	ScheduledAt    string `json:"scheduledAt"`
+	Note           string `json:"note,omitempty"`
+	AdvanceOffsets []int  `json:"advanceOffsets"`
+	Status         string `json:"status"`
+	SnoozedUntil   string `json:"snoozedUntil,omitempty"`
+	CompletedAt    string `json:"completedAt,omitempty"`
+	RecordID       string `json:"recordId,omitempty"`
+	Role           string `json:"role,omitempty"`
+}
+
+type AppointmentInput struct {
+	Type           string `json:"type"`
+	Title          string `json:"title"`
+	ScheduledAt    string `json:"scheduledAt"`
+	Note           string `json:"note"`
+	AdvanceOffsets []int  `json:"advanceOffsets"`
+}
+
+// AppointmentPatch carries only the fields a partial update wants to change.
+type AppointmentPatch struct {
+	Type           *string
+	Title          *string
+	ScheduledAt    *string
+	Note           *string
+	AdvanceOffsets *[]int
+}
+
 type Attachment struct {
 	ID           string `json:"id"`
 	PetID        string `json:"petId"`

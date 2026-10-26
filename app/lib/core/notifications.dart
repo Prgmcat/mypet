@@ -46,15 +46,19 @@ class NotificationService {
     _ready = true;
   }
 
-  /// Replaces every scheduled notification with the current pending set.
-  static Future<void> syncReminders(List<Reminder> reminders) async {
+  /// Replaces every scheduled notification with the current pending set of
+  /// periodic reminders and one-off appointments.
+  static Future<void> syncTasks({
+    List<Reminder> reminders = const [],
+    List<Appointment> appointments = const [],
+  }) async {
     if (!_ready) return;
     await _plugin.cancelAll();
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
         _channelId,
         _channelName,
-        channelDescription: '疫苗、驱虫、体检与生日提醒',
+        channelDescription: '疫苗、驱虫、体检、预约与生日提醒',
         importance: Importance.high,
         priority: Priority.high,
       ),
@@ -78,40 +82,103 @@ class NotificationService {
           when = now.add(const Duration(seconds: 15));
         }
         final id = _idFor('${reminder.occurrenceKey}:$offset');
-        try {
-          await _plugin.zonedSchedule(
-            id,
-            '${reminder.petName} · ${reminder.typeLabel}提醒',
-            offset == 0 ? '今天到期，记得完成照护' : '还有 $offset 天到期',
-            tz.TZDateTime.from(when, tz.local),
-            details,
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            uiLocalNotificationDateInterpretation:
-                UILocalNotificationDateInterpretation.absoluteTime,
-            payload: reminder.id,
-          );
+        if (await _schedule(
+          id: id,
+          title: '${reminder.petName} · ${reminder.typeLabel}提醒',
+          body: offset == 0 ? '今天到期，记得完成照护' : '还有 $offset 天到期',
+          when: when,
+          payload: reminder.id,
+          details: details,
+        )) {
           scheduled++;
-        } catch (_) {
-          // Exact alarms may be denied; fall back to an inexact schedule.
-          try {
-            await _plugin.zonedSchedule(
-              id,
-              '${reminder.petName} · ${reminder.typeLabel}提醒',
-              offset == 0 ? '今天到期，记得完成照护' : '还有 $offset 天到期',
-              tz.TZDateTime.from(when, tz.local),
-              details,
-              androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-              uiLocalNotificationDateInterpretation:
-                  UILocalNotificationDateInterpretation.absoluteTime,
-              payload: reminder.id,
-            );
-            scheduled++;
-          } catch (_) {
-            // Give up on this occurrence rather than failing the whole sync.
-          }
         }
       }
     }
+    for (final appointment in appointments) {
+      if (appointment.status != 'pending' && appointment.status != 'snoozed') {
+        continue;
+      }
+      if (scheduled >= 64) return;
+      final due = DateTime.tryParse(appointment.scheduledAt);
+      if (due == null) continue;
+      if (appointment.status == 'snoozed') {
+        final until = DateTime.tryParse(appointment.snoozedUntil)?.toLocal();
+        if (until == null) continue;
+        var when = until;
+        if (when.isBefore(now)) when = now.add(const Duration(seconds: 15));
+        final id = _idFor('appointment:${appointment.id}:snooze');
+        if (await _schedule(
+          id: id,
+          title: '${appointment.petName} · ${appointment.typeLabel}预约',
+          body: '稍后提醒：${appointment.title}',
+          when: when,
+          payload: appointment.id,
+          details: details,
+        )) {
+          scheduled++;
+        }
+        continue;
+      }
+      final offsets = appointment.advanceOffsets.isEmpty
+          ? const [0]
+          : appointment.advanceOffsets;
+      for (final offset in offsets) {
+        if (scheduled >= 64) return;
+        final day = due.subtract(Duration(days: offset));
+        var when = DateTime(day.year, day.month, day.day, 9);
+        if (when.isBefore(now)) {
+          if (offset != 0) continue;
+          when = now.add(const Duration(seconds: 15));
+        }
+        final id = _idFor('appointment:${appointment.id}:$offset');
+        if (await _schedule(
+          id: id,
+          title: '${appointment.petName} · ${appointment.typeLabel}预约',
+          body: offset == 0
+              ? '今天有一项预约，完成后会自动生成健康记录'
+              : '还有 $offset 天，预约：${appointment.title}',
+          when: when,
+          payload: appointment.id,
+          details: details,
+        )) {
+          scheduled++;
+        }
+      }
+    }
+  }
+
+  /// Schedules one notification, falling back to inexact alarms when the
+  /// platform denies exact scheduling.
+  static Future<bool> _schedule({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime when,
+    required String payload,
+    required NotificationDetails details,
+  }) async {
+    for (final mode in const [
+      AndroidScheduleMode.exactAllowWhileIdle,
+      AndroidScheduleMode.inexactAllowWhileIdle,
+    ]) {
+      try {
+        await _plugin.zonedSchedule(
+          id,
+          title,
+          body,
+          tz.TZDateTime.from(when, tz.local),
+          details,
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload,
+        );
+        return true;
+      } catch (_) {
+        // Try the less strict mode before giving up.
+      }
+    }
+    return false;
   }
 
   static Future<void> cancelAll() async {

@@ -77,6 +77,15 @@ func New(st *store.Store, version string) http.Handler {
 		r.Get("/api/pets/{petID}/reminder-rules", s.listReminderRules)
 		r.Put("/api/reminder-rules/{ruleID}", s.updateReminderRule)
 
+		r.Get("/api/appointments", s.listAppointments)
+		r.Get("/api/pets/{petID}/appointments", s.listPetAppointments)
+		r.Post("/api/pets/{petID}/appointments", s.createAppointment)
+		r.Patch("/api/appointments/{appointmentID}", s.updateAppointment)
+		r.Delete("/api/appointments/{appointmentID}", s.deleteAppointment)
+		r.Post("/api/appointments/{appointmentID}/complete", s.completeAppointment)
+		r.Post("/api/appointments/{appointmentID}/skip", s.skipAppointment)
+		r.Post("/api/appointments/{appointmentID}/snooze", s.snoozeAppointment)
+
 		r.Get("/api/pets/{petID}/members", s.listMembers)
 		r.Post("/api/pets/{petID}/members", s.addMember)
 		r.Delete("/api/pets/{petID}/members/{userID}", s.removeMember)

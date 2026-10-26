@@ -17,6 +17,7 @@ import '../../core/ai/ai_sessions.dart';
 import '../../core/api_client.dart';
 import '../../core/chat_images.dart';
 import '../../core/models.dart';
+import '../../core/notifications.dart';
 import '../../core/session.dart';
 import '../pets/pet_form_page.dart';
 import '../records/record_form_page.dart';
@@ -215,6 +216,23 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       }
     } catch (_) {
       // Ignore.
+    }
+  }
+
+  /// Keeps local notifications in step after a chat-created appointment.
+  Future<void> _syncNotifications() async {
+    try {
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.listReminders(status: 'pending'),
+        api.listAppointments(status: 'pending'),
+      ]);
+      await NotificationService.syncTasks(
+        reminders: results[0] as List<Reminder>,
+        appointments: results[1] as List<Appointment>,
+      );
+    } catch (_) {
+      // Notification scheduling is best effort.
     }
   }
 
@@ -485,14 +503,15 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   }
 
   static final _writeClaimPattern = RegExp(
-    r'(已(记录|保存|归档|写入|添加)|记下了|帮你记|记录好了|存好了|已经记|写进(了)?档案|归档到)',
+    r'(已(记录|保存|归档|写入|添加|预约|安排)|记下了|帮你记|记录好了|存好了|已经记|'
+    r'写进(了)?档案|归档到|预约好了|约好了|安排好了)',
   );
 
   bool _claimsWrite(String text) => _writeClaimPattern.hasMatch(text);
 
   Future<void> _appendCaptureDisclaimer(String answer) async {
-    const note = '\n\n（提示：本条尚未写入档案，请以界面上的「已自动记录」卡片为准；'
-        '如需保存，请到对应宠物的成长/健康记录页补记。）';
+    const note = '\n\n（提示：本条尚未写入档案或创建预约，请以界面上的记录/预约卡片为准；'
+        '如需保存，请到对应宠物的记录页补记。）';
     for (var i = _session.messages.length - 1; i >= 0; i--) {
       final message = _session.messages[i];
       if (message.role == 'assistant' && message.content == answer) {
@@ -570,6 +589,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         } else {
           await _reloadContext();
         }
+        if (captures.any((c) => c.kind == 'appointment')) {
+          await _syncNotifications();
+        }
       }
     }
     if (!mounted) return captures.isNotEmpty;
@@ -620,6 +642,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       if (mounted) {
         await _reloadContext();
         setState(() {});
+        if (captures.any((c) => c.kind == 'appointment')) {
+          await _syncNotifications();
+        }
       }
       _scrollToBottom();
     }
@@ -657,6 +682,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         await _reloadContext();
       }
       setState(() {});
+      if (message.captures.any((c) => c.kind == 'appointment')) {
+        await _syncNotifications();
+      }
     }
   }
 
@@ -1584,6 +1612,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       final active = message.captures.where((c) => !c.undone).toList();
       final petsOnly = message.captures.isNotEmpty &&
           message.captures.every((c) => c.kind == 'pet');
+      final appointmentsOnly = message.captures.isNotEmpty &&
+          message.captures.every((c) => c.kind == 'appointment');
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: Container(
@@ -1604,7 +1634,11 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      petsOnly ? '已自动添加宠物' : '已自动记录',
+                      petsOnly
+                          ? '已自动添加宠物'
+                          : appointmentsOnly
+                              ? '已创建预约'
+                              : '已自动记录',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,

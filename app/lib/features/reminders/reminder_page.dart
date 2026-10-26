@@ -24,6 +24,11 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     'done': const [],
     'skipped': const [],
   };
+  final Map<String, List<Appointment>> _appointmentsByStatus = {
+    'pending': const [],
+    'done': const [],
+    'skipped': const [],
+  };
   bool _loading = true;
   bool _offline = false;
   String? _error;
@@ -43,6 +48,18 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     super.dispose();
   }
 
+  List<_TaskItem> _tasksFor(String status) {
+    final tasks = <_TaskItem>[
+      for (final reminder in _byStatus[status]!) _TaskItem.reminder(reminder),
+      for (final appointment in _appointmentsByStatus[status]!)
+        _TaskItem.appointment(appointment),
+    ];
+    tasks.sort((a, b) => status == 'pending'
+        ? a.dueAt.compareTo(b.dueAt)
+        : b.dueAt.compareTo(a.dueAt));
+    return tasks;
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -50,11 +67,12 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     });
     final api = ref.read(apiClientProvider);
     final userId = ref.read(sessionProvider).user?.id;
-    List<List<Reminder>> results;
+    List<List<dynamic>> results;
     try {
-      results = await Future.wait(
-        _statuses.map((status) => api.listReminders(status: status)),
-      );
+      results = await Future.wait([
+        for (final status in _statuses) api.listReminders(status: status),
+        for (final status in _statuses) api.listAppointments(status: status),
+      ]);
     } on ApiException catch (e) {
       await _loadCached(e.userMessage);
       return;
@@ -66,7 +84,9 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     if (!mounted) return;
     setState(() {
       for (var i = 0; i < _statuses.length; i++) {
-        _byStatus[_statuses[i]] = results[i];
+        _byStatus[_statuses[i]] = results[i] as List<Reminder>;
+        _appointmentsByStatus[_statuses[i]] =
+            results[i + _statuses.length] as List<Appointment>;
       }
       _loading = false;
       _offline = false;
@@ -76,14 +96,20 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     if (userId != null) {
       try {
         for (var i = 0; i < _statuses.length; i++) {
-          await LocalCache.saveReminders(userId, _statuses[i], results[i]);
+          await LocalCache.saveReminders(
+              userId, _statuses[i], _byStatus[_statuses[i]]!);
+          await LocalCache.saveAppointments(
+              userId, _statuses[i], _appointmentsByStatus[_statuses[i]]!);
         }
       } catch (e) {
         debugPrint('reminders cache save failed: $e');
       }
     }
     try {
-      await NotificationService.syncReminders(_byStatus['pending']!);
+      await NotificationService.syncTasks(
+        reminders: _byStatus['pending']!,
+        appointments: _appointmentsByStatus['pending']!,
+      );
     } catch (e) {
       debugPrint('reminders notification sync failed: $e');
     }
@@ -94,14 +120,18 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     if (userId != null) {
       var hasData = false;
       final cachedByStatus = <String, List<Reminder>>{};
+      final cachedAppointments = <String, List<Appointment>>{};
       for (final status in _statuses) {
         final rows = await LocalCache.loadReminders(userId, status);
+        final appointments = await LocalCache.loadAppointments(userId, status);
         cachedByStatus[status] = rows;
-        if (rows.isNotEmpty) hasData = true;
+        cachedAppointments[status] = appointments;
+        if (rows.isNotEmpty || appointments.isNotEmpty) hasData = true;
       }
       if (hasData && mounted) {
         setState(() {
           _byStatus.addAll(cachedByStatus);
+          _appointmentsByStatus.addAll(cachedAppointments);
           _loading = false;
           _error = null;
           _offline = true;
@@ -116,7 +146,13 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     });
   }
 
-  Future<void> _act(Reminder reminder, String action) async {
+  Future<void> _act(_TaskItem task, String action) async {
+    final appointment = task.appointment;
+    if (appointment != null) {
+      await _actAppointment(appointment, action);
+      return;
+    }
+    final reminder = task.reminder!;
     if (action == 'skip') {
       final ok = await showDialog<bool>(
         context: context,
@@ -158,8 +194,59 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
     }
   }
 
+  Future<void> _actAppointment(Appointment appointment, String action) async {
+    if (action == 'skip') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('跳过这次预约'),
+          content: Text(
+              '将跳过「${appointment.petName} · ${appointment.title}」，不会生成健康记录。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('跳过'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    final api = ref.read(apiClientProvider);
+    try {
+      switch (action) {
+        case 'complete':
+          final done = await api.completeAppointment(appointment.id);
+          if (!mounted) return;
+          showToast(
+            context,
+            done.recordId.isEmpty ? '预约已完成' : '预约已完成，已生成健康记录',
+          );
+        case 'snooze':
+          await api.snoozeAppointment(appointment.id);
+          if (!mounted) return;
+          showToast(context, '已稍后提醒（24 小时）');
+        default:
+          await api.skipAppointment(appointment.id);
+          if (!mounted) return;
+          showToast(context, '已跳过本次预约');
+      }
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showToast(context, e.userMessage, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final taskCounts = {
+      for (final status in _statuses) status: _tasksFor(status).length,
+    };
     return Scaffold(
       appBar: AppBar(
         title: const Text('照护提醒'),
@@ -174,7 +261,7 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
           controller: _tabs,
           tabs: [
             for (var i = 0; i < _labels.length; i++)
-              Tab(text: '${_labels[i]}（${_byStatus[_statuses[i]]!.length}）'),
+              Tab(text: '${_labels[i]}（${taskCounts[_statuses[i]] ?? 0}）'),
           ],
         ),
       ),
@@ -201,8 +288,8 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
                         controller: _tabs,
                         children: [
                           for (final status in _statuses)
-                            _ReminderList(
-                              reminders: _byStatus[status]!,
+                            _TaskList(
+                              tasks: _tasksFor(status),
                               status: status,
                               onRefresh: _load,
                               onAct: _act,
@@ -216,22 +303,42 @@ class _ReminderPageState extends ConsumerState<ReminderPage>
   }
 }
 
-class _ReminderList extends StatelessWidget {
-  const _ReminderList({
-    required this.reminders,
+/// One row in the reminder page: either a periodic reminder or a one-off
+/// appointment.
+class _TaskItem {
+  _TaskItem.reminder(this.reminder) : appointment = null;
+  _TaskItem.appointment(this.appointment) : reminder = null;
+
+  final Reminder? reminder;
+  final Appointment? appointment;
+
+  bool get isAppointment => appointment != null;
+  String get petName => appointment?.petName ?? reminder!.petName;
+  String get typeLabel => appointment?.typeLabel ?? reminder!.typeLabel;
+  String get emoji => appointment?.emoji ?? reminder!.emoji;
+  String get dueAt => appointment?.scheduledAt ?? reminder!.dueAt;
+  String get status => appointment?.status ?? reminder!.status;
+  bool get canAct => appointment?.canAct ?? reminder!.canAct;
+  String get title => appointment?.title ?? '';
+  String get recordId => appointment?.recordId ?? reminder!.recordId;
+}
+
+class _TaskList extends StatelessWidget {
+  const _TaskList({
+    required this.tasks,
     required this.status,
     required this.onRefresh,
     required this.onAct,
   });
 
-  final List<Reminder> reminders;
+  final List<_TaskItem> tasks;
   final String status;
   final Future<void> Function() onRefresh;
-  final Future<void> Function(Reminder, String) onAct;
+  final Future<void> Function(_TaskItem, String) onAct;
 
   @override
   Widget build(BuildContext context) {
-    if (reminders.isEmpty) {
+    if (tasks.isEmpty) {
       return RefreshIndicator(
         onRefresh: onRefresh,
         child: ListView(
@@ -247,7 +354,7 @@ class _ReminderList extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  '新增带「下次提醒日期」的记录后会自动生成',
+                  '新增带「下次提醒日期」的记录或在宠物详情添加预约后会自动生成',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.black45, fontSize: 13),
                 ),
@@ -263,11 +370,12 @@ class _ReminderList extends StatelessWidget {
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-        itemCount: reminders.length,
+        itemCount: tasks.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
-          final r = reminders[index];
-          final overdue = status == 'pending' && r.dueAt.compareTo(today) < 0;
+          final task = tasks[index];
+          final overdue =
+              status == 'pending' && task.dueAt.compareTo(today) < 0;
           return Card(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
@@ -278,23 +386,47 @@ class _ReminderList extends StatelessWidget {
                     children: [
                       CircleAvatar(
                         backgroundColor: const Color(0xFFF1E4D8),
-                        child:
-                            Text(r.emoji, style: const TextStyle(fontSize: 18)),
+                        child: Text(task.emoji,
+                            style: const TextStyle(fontSize: 18)),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '${r.petName} · ${r.typeLabel}',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700),
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    '${task.petName} · ${task.typeLabel}',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (task.isAppointment) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEAF3EA),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      '预约',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF3E6B4F),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '到期 ${r.dueAt}${overdue ? ' · 已逾期' : ''}'
-                              '${r.status == 'snoozed' ? ' · 已稍后' : ''}',
+                              _subtitle(task, status, today),
                               style: TextStyle(
                                 fontSize: 13,
                                 color: overdue
@@ -313,22 +445,22 @@ class _ReminderList extends StatelessWidget {
                             color: Colors.black26, size: 20),
                     ],
                   ),
-                  if (status == 'pending' && r.canAct) ...[
+                  if (status == 'pending' && task.canAct) ...[
                     const SizedBox(height: 10),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: () => onAct(r, 'skip'),
+                          onPressed: () => onAct(task, 'skip'),
                           child: const Text('跳过'),
                         ),
                         TextButton(
-                          onPressed: () => onAct(r, 'snooze'),
+                          onPressed: () => onAct(task, 'snooze'),
                           child: const Text('稍后'),
                         ),
                         const SizedBox(width: 4),
                         FilledButton(
-                          onPressed: () => onAct(r, 'complete'),
+                          onPressed: () => onAct(task, 'complete'),
                           child: const Text('完成'),
                         ),
                       ],
@@ -341,6 +473,26 @@ class _ReminderList extends StatelessWidget {
         },
       ),
     );
+  }
+
+  String _subtitle(_TaskItem task, String status, String today) {
+    if (task.isAppointment) {
+      final name = task.title.isEmpty || task.title == task.typeLabel
+          ? ''
+          : ' · ${task.title}';
+      if (status == 'done') {
+        return task.recordId.isEmpty
+            ? '预约 ${task.dueAt}$name'
+            : '预约 ${task.dueAt}$name · 已生成健康记录';
+      }
+      if (status == 'skipped') return '预约 ${task.dueAt}$name · 已跳过';
+      final overdue = task.dueAt.compareTo(today) < 0;
+      return '预约 ${task.dueAt}$name${overdue ? ' · 已逾期' : ''}'
+          '${task.status == 'snoozed' ? ' · 已稍后' : ''}';
+    }
+    final overdue = status == 'pending' && task.dueAt.compareTo(today) < 0;
+    return '到期 ${task.dueAt}${overdue ? ' · 已逾期' : ''}'
+        '${task.status == 'snoozed' ? ' · 已稍后' : ''}';
   }
 }
 

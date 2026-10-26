@@ -7,7 +7,8 @@ import 'package:miaolegemi/core/ai/ai_sessions.dart';
 import 'package:miaolegemi/core/api_client.dart';
 import 'package:miaolegemi/core/models.dart';
 
-Pet buildPet(String id, String name, String species, {String role = 'owner'}) => Pet(
+Pet buildPet(String id, String name, String species, {String role = 'owner'}) =>
+    Pet(
       id: id,
       ownerUserId: 'u1',
       name: name,
@@ -317,6 +318,74 @@ void main() {
     }
   });
 
+  test('applyCapture creates an appointment and undo deletes it', () async {
+    var deleted = false;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      if (request.method == 'POST' &&
+          request.uri.path == '/api/pets/p1/appointments') {
+        final body = jsonDecode(await utf8.decoder.bind(request).join());
+        expect(body['type'], 'deworming');
+        expect(body['scheduledAt'], '2026-11-02');
+        expect(body['title'], '驱虫');
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'code': 0,
+          'message': 'ok',
+          'data': {
+            'id': 'a1',
+            'petId': 'p1',
+            'petName': '咪咪',
+            'type': 'deworming',
+            'title': '驱虫',
+            'scheduledAt': '2026-11-02',
+            'advanceOffsets': [3, 1, 0],
+            'status': 'pending',
+            'role': 'owner',
+          },
+        }));
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'DELETE' &&
+          request.uri.path == '/api/appointments/a1') {
+        deleted = true;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode({
+          'code': 0,
+          'message': 'ok',
+          'data': {'ok': true}
+        }));
+        await request.response.close();
+        return;
+      }
+      request.response.statusCode = 404;
+      await request.response.close();
+    });
+    try {
+      final api = ApiClient()
+        ..configure(baseUrl: 'http://127.0.0.1:${server.port}');
+      final event = CaptureEvent(
+        kind: 'appointment',
+        petId: 'p1',
+        petName: '咪咪',
+        label: '预约 2026-11-02 · 驱虫',
+        title: '驱虫',
+        scheduledAt: '2026-11-02',
+        appointmentType: 'deworming',
+        note: '下周一要驱虫',
+      );
+      final capture = await applyCapture(api, event);
+      expect(capture.kind, 'appointment');
+      expect(capture.id, 'a1');
+      expect(capture.label, contains('2026-11-02'));
+      await undoCapture(api, capture);
+      expect(deleted, true);
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
   test('AI JSON extraction is validated and mapped', () {
     final events = parseCaptureJson('''
 ```json
@@ -333,5 +402,55 @@ void main() {
     expect(events[1].petId, doudou.id);
     expect(events[2].kind, 'diet');
     expect(events[2].label, contains('新猫粮'));
+  });
+
+  test('future care plan becomes an appointment for the named pet', () {
+    final shouzhua = buildPet('p3', '手抓饼', 'cat');
+    final event = parseLocalAppointment('下周一要给手抓饼做个驱虫', [shouzhua]);
+    expect(event, isNotNull);
+    expect(event!.kind, 'appointment');
+    expect(event.appointmentType, 'deworming');
+    expect(event.petId, shouzhua.id);
+    expect(event.scheduledAt, isNotEmpty);
+    expect(parseLocalCaptures('下周一要给手抓饼做个驱虫', [shouzhua]).single.kind,
+        'appointment');
+  });
+
+  test('appointment dates resolve relative to today', () {
+    final monday = DateTime(2026, 10, 26);
+    expect(parseAppointmentDate('下周一', now: monday), '2026-11-02');
+    expect(parseAppointmentDate('明天', now: monday), '2026-10-27');
+    expect(parseAppointmentDate('后天', now: monday), '2026-10-28');
+    expect(parseAppointmentDate('3天后', now: monday), '2026-10-29');
+    expect(parseAppointmentDate('这周三', now: monday), '2026-10-28');
+    expect(parseAppointmentDate('11月5号', now: monday), '2026-11-05');
+    expect(parseAppointmentDate('下个月3号', now: monday), '2026-11-03');
+    expect(parseAppointmentDate('随便聊聊', now: monday), isNull);
+  });
+
+  test('past care and questions do not create appointments', () {
+    expect(parseLocalCaptures('昨天给咪咪驱虫了', pets), isEmpty);
+    expect(parseLocalCaptures('周日给咪咪洗澡了', pets), isEmpty);
+    expect(parseLocalCaptures('下周一给咪咪驱虫可以吗', pets), isEmpty);
+    expect(parseLocalAppointment('回头给咪咪驱虫', pets), isNull);
+  });
+
+  test('future plans ending with 了 still create appointments', () {
+    final event = parseLocalAppointment('明天带咪咪去洗澡了', pets);
+    expect(event, isNotNull);
+    expect(event!.appointmentType, 'grooming');
+  });
+
+  test('AI JSON appointment extraction is validated', () {
+    final events = parseCaptureJson(
+      '{"events":[{"kind":"appointment","pet":"咪咪","scheduledAt":"2026-11-02",'
+      '"appointmentType":"deworming","title":"驱虫","note":"下周一驱虫"}]}',
+      pets,
+    );
+    expect(events.length, 1);
+    expect(events.single.kind, 'appointment');
+    expect(events.single.petId, mimi.id);
+    expect(events.single.scheduledAt, '2026-11-02');
+    expect(events.single.appointmentType, 'deworming');
   });
 }

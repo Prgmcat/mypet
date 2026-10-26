@@ -349,6 +349,68 @@ class ApiClient {
     return ReminderRule.fromJson(data as Map<String, dynamic>);
   }
 
+  Future<List<Appointment>> listAppointments(
+      {String status = 'pending'}) async {
+    final data = await _get('/api/appointments?status=$status');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => Appointment.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<List<Appointment>> listPetAppointments(
+    String petId, {
+    String status = 'pending',
+  }) async {
+    final data = await _get('/api/pets/$petId/appointments?status=$status');
+    if (data == null) return const [];
+    return (data as List)
+        .map((e) => Appointment.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+  }
+
+  Future<Appointment> createAppointment(
+    String petId,
+    Map<String, dynamic> payload,
+  ) async {
+    final data = await _post('/api/pets/$petId/appointments', payload);
+    return Appointment.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Appointment> updateAppointment(
+    String appointmentId,
+    Map<String, dynamic> payload,
+  ) async {
+    final data = await _patch('/api/appointments/$appointmentId', payload);
+    return Appointment.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> deleteAppointment(String appointmentId) async {
+    await _delete('/api/appointments/$appointmentId');
+  }
+
+  Future<Appointment> completeAppointment(String appointmentId) async {
+    final data =
+        await _post('/api/appointments/$appointmentId/complete', const {});
+    return Appointment.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Appointment> skipAppointment(String appointmentId) async {
+    final data = await _post('/api/appointments/$appointmentId/skip', const {});
+    return Appointment.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<Appointment> snoozeAppointment(
+    String appointmentId, {
+    int hours = 24,
+  }) async {
+    final data = await _post(
+      '/api/appointments/$appointmentId/snooze',
+      {'hours': hours},
+    );
+    return Appointment.fromJson(data as Map<String, dynamic>);
+  }
+
   Future<List<PetMember>> listMembers(String petId) async {
     final data = await _get('/api/pets/$petId/members');
     if (data == null) return const [];

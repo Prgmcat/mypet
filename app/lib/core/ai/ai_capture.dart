@@ -19,11 +19,13 @@ class CaptureEvent {
     this.weightKg,
     this.title = '',
     this.occurredAt = '',
+    this.scheduledAt = '',
+    this.appointmentType = '',
     this.payload = const {},
     this.note = '',
   });
 
-  /// weight | medical | diet
+  /// weight | medical | diet | growth | pet | appointment
   final String kind;
   String petId;
   String petName;
@@ -33,6 +35,12 @@ class CaptureEvent {
 
   /// Record date in YYYY-MM-DD. Empty means today.
   String occurredAt;
+
+  /// Appointment date in YYYY-MM-DD. Only used when kind is appointment.
+  final String scheduledAt;
+
+  /// vaccine | deworming | checkup | medical | medication | grooming | other
+  final String appointmentType;
   final Map<String, dynamic> payload;
   final String note;
 }
@@ -139,6 +147,7 @@ bool looksRecordWorthy(String text) {
 bool shouldTryAiCapture(String text, List<Pet> pets) {
   final value = text.trim();
   if (value.length < 4 || _looksLikeQuestion(value)) return false;
+  if (_looksLikeAppointment(value)) return true;
   if (looksRecordWorthy(value)) return true;
   return pets.any((pet) => value.contains(pet.name));
 }
@@ -220,6 +229,209 @@ String parseRecordDate(String text, {DateTime? now}) {
   return _formatDate(today);
 }
 
+const appointmentTypeLabels = <String, String>{
+  'vaccine': '疫苗',
+  'deworming': '驱虫',
+  'checkup': '体检',
+  'medical': '就诊',
+  'medication': '用药',
+  'grooming': '洗护',
+  'other': '预约',
+};
+
+String appointmentTypeLabel(String type) =>
+    appointmentTypeLabels[type] ?? appointmentTypeLabels['other']!;
+
+const _appointmentTypeCues = <(String, String)>[
+  ('驱虫', 'deworming'),
+  ('疫苗', 'vaccine'),
+  ('接种', 'vaccine'),
+  ('打针', 'vaccine'),
+  ('猫三联', 'vaccine'),
+  ('狂犬', 'vaccine'),
+  ('体检', 'checkup'),
+  ('复查', 'checkup'),
+  ('绝育', 'medical'),
+  ('手术', 'medical'),
+  ('看病', 'medical'),
+  ('就诊', 'medical'),
+  ('复诊', 'medical'),
+  ('喂药', 'medication'),
+  ('用药', 'medication'),
+  ('吃药', 'medication'),
+  ('洗澡', 'grooming'),
+  ('洗护', 'grooming'),
+  ('美容', 'grooming'),
+  ('剪指甲', 'grooming'),
+];
+
+String? appointmentTypeForText(String text) {
+  for (final (cue, type) in _appointmentTypeCues) {
+    if (text.contains(cue)) return type;
+  }
+  return null;
+}
+
+/// True when the message describes a future care plan rather than something
+/// that already happened.
+bool hasFutureAppointmentCue(String text) {
+  // Strong past markers always win, even if the sentence also mentions a
+  // weekday.
+  if (RegExp(r'(已经|昨天|前天|昨儿|上周|上个月|去年|刚刚|刚才)').hasMatch(text)) {
+    return false;
+  }
+  // An explicit future date is enough on its own.
+  if (RegExp(
+    r'(明天|明日|后天|大后天|下周|下个?星期|下个?月|下个月|\d{1,2}\s*月\s*\d{1,2}\s*[日号]|\d{1,2}\s*[天周]\s*后)',
+  ).hasMatch(text)) {
+    return true;
+  }
+  // Without an explicit future date, completed-action wording means the care
+  // already happened; "明天去洗澡了" was caught above as a plan.
+  if (RegExp(
+    r'(洗了|洗过|洗澡了|剪了|剪过|驱虫了|驱过虫|体检了|复诊了|检查了|做了|做过|'
+    r'去了|去过|打了|打过|吃了|吃过|看了|看过|用过了)',
+  ).hasMatch(text)) {
+    return false;
+  }
+  if (RegExp(r'(周|星期)[一二三四五六日天]').hasMatch(text)) return true;
+  return (text.contains('今天') || text.contains('今晚') || text.contains('周末')) &&
+      RegExp(r'(要|得|需要|打算|准备|计划|安排|预约|约|提醒)').hasMatch(text);
+}
+
+bool _looksLikeAppointment(String text) =>
+    appointmentTypeForText(text) != null &&
+    !_looksLikeQuestion(text) &&
+    hasFutureAppointmentCue(text);
+
+/// Resolves the date of a future plan. Returns null when no date cue is found.
+String? parseAppointmentDate(String text, {DateTime? now}) {
+  final base = now ?? DateTime.now();
+  final today = DateTime(base.year, base.month, base.day);
+  String fmt(DateTime d) => _formatDate(d);
+
+  var match = RegExp(
+    r'(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*[日号]?',
+  ).firstMatch(text);
+  if (match != null) {
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final date = DateTime(year, month, day);
+    if (date.year == year && date.month == month && date.day == day) {
+      return fmt(date);
+    }
+  }
+
+  match = RegExp(r'(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]').firstMatch(text);
+  if (match != null) {
+    final month = int.parse(match.group(1)!);
+    final day = int.parse(match.group(2)!);
+    var date = DateTime(today.year, month, day);
+    if (date.month == month && date.day == day) {
+      if (date.isBefore(today)) date = DateTime(today.year + 1, month, day);
+      return fmt(date);
+    }
+  }
+
+  match = RegExp(r'下个?月\s*(\d{1,2})\s*[日号]').firstMatch(text);
+  if (match != null) {
+    final day = int.parse(match.group(1)!);
+    final month = today.month == 12 ? 1 : today.month + 1;
+    final year = today.month == 12 ? today.year + 1 : today.year;
+    final date = DateTime(year, month, day);
+    if (date.month == month && date.day == day) return fmt(date);
+  }
+
+  match = RegExp(r'(\d{1,2})\s*天\s*后').firstMatch(text);
+  if (match != null) {
+    final days = int.parse(match.group(1)!);
+    if (days > 0 && days <= 3650) return fmt(today.add(Duration(days: days)));
+  }
+
+  match = RegExp(r'(\d{1,2})\s*(?:个)?\s*(?:周|星期)\s*后').firstMatch(text);
+  if (match != null) {
+    final weeks = int.parse(match.group(1)!);
+    if (weeks > 0 && weeks <= 520) {
+      return fmt(today.add(Duration(days: weeks * 7)));
+    }
+  }
+
+  if (text.contains('大后天')) return fmt(today.add(const Duration(days: 3)));
+  if (text.contains('后天')) return fmt(today.add(const Duration(days: 2)));
+  if (text.contains('明天') || text.contains('明日')) {
+    return fmt(today.add(const Duration(days: 1)));
+  }
+  if (text.contains('今晚') || text.contains('今天') || text.contains('今日')) {
+    return fmt(today);
+  }
+
+  if (text.contains('周末')) {
+    final saturday = today.add(Duration(days: 6 - today.weekday));
+    final isNext = text.contains('下个周末') || text.contains('下周末');
+    if (isNext) return fmt(saturday.add(const Duration(days: 7)));
+    if (saturday.isBefore(today)) {
+      return fmt(saturday.add(const Duration(days: 7)));
+    }
+    return fmt(saturday);
+  }
+
+  const weekdays = <String, int>{
+    '一': 1,
+    '二': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '日': 7,
+    '天': 7,
+  };
+  match = RegExp(r'下\s*(?:个)?\s*(?:周|星期)\s*([一二三四五六日天])').firstMatch(text);
+  if (match != null) {
+    final monday = today
+        .subtract(Duration(days: today.weekday - 1))
+        .add(const Duration(days: 7));
+    return fmt(monday.add(Duration(days: weekdays[match.group(1)]! - 1)));
+  }
+  if (RegExp(r'下\s*(?:个)?\s*(?:周|星期)').hasMatch(text)) {
+    final monday = today
+        .subtract(Duration(days: today.weekday - 1))
+        .add(const Duration(days: 7));
+    return fmt(monday);
+  }
+
+  match = RegExp(r'(?:这|本)?\s*(?:周|星期)\s*([一二三四五六日天])').firstMatch(text);
+  if (match != null) {
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    var date = monday.add(Duration(days: weekdays[match.group(1)]! - 1));
+    if (date.isBefore(today)) date = date.add(const Duration(days: 7));
+    return fmt(date);
+  }
+  return null;
+}
+
+/// Turns "下周一要给手抓饼做个驱虫" into an appointment capture.
+CaptureEvent? parseLocalAppointment(String text, List<Pet> pets) {
+  if (_looksLikeQuestion(text)) return null;
+  final type = appointmentTypeForText(text);
+  if (type == null || !hasFutureAppointmentCue(text)) return null;
+  final scheduledAt = parseAppointmentDate(text);
+  if (scheduledAt == null) return null;
+  final pet = matchPet(text, pets);
+  final label = appointmentTypeLabel(type);
+  return CaptureEvent(
+    kind: 'appointment',
+    petId: pet?.id ?? '',
+    petName: pet?.name ?? '',
+    label: '预约 $scheduledAt · $label',
+    title: label,
+    occurredAt: scheduledAt,
+    scheduledAt: scheduledAt,
+    appointmentType: type,
+    note: text,
+  );
+}
+
 final _recordCommandPattern = RegExp(
   r'(记下|记一下|记录一下|记录下|帮我记|帮忙记|存一下|存档|归档|写成.{0,6}记录|作为.{0,6}记录|当做.{0,6}记录|当作.{0,6}记录)',
 );
@@ -267,6 +479,9 @@ String _formatKg(double kg) {
 List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
   final newPet = _parseNewPet(text);
   if (newPet != null) return [newPet];
+
+  final appointment = parseLocalAppointment(text, pets);
+  if (appointment != null) return [appointment];
 
   final events = <CaptureEvent>[];
   final pet = matchPet(text, pets);
@@ -494,10 +709,14 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
   "title":"不超过 20 字","note":"原始描述","product":"换粮/食品名称"},
  {"kind":"growth","pet":"宠物名字或空字符串","occurredAt":"YYYY-MM-DD","title":"不超过 20 字","note":"原始描述"},
  {"kind":"pet","name":"新宠物名字","species":"cat|dog|other","breed":"","sex":"male|female|unknown",
-  "birthday":"YYYY-MM-DD 或空","ageMonths":24,"weightKg":2.5,"neutered":"yes|no|unknown","note":"原始描述"}
+  "birthday":"YYYY-MM-DD 或空","ageMonths":24,"weightKg":2.5,"neutered":"yes|no|unknown","note":"原始描述"},
+ {"kind":"appointment","pet":"宠物名字或空字符串","scheduledAt":"YYYY-MM-DD",
+  "appointmentType":"vaccine|deworming|checkup|medical|medication|grooming|other",
+  "title":"不超过 20 字","note":"原始描述"}
 ]}
 规则：
-1. 只提取用户明确陈述、已经发生的事实；提问、假设、计划不要记录。
+1. 只提取用户明确陈述、已经发生的事实；提问、假设不要记录。
+   未来要做的照护计划用 appointment，不要记为已发生的健康记录。
 2. weight 必须给出公斤数；用户用“斤”时要换算成公斤（1 斤 = 0.5 kg）。
 3. medical 用于症状/就诊，title 用简短症状；diet 用于换粮、食品、配方。
    growth 用于宠物日常的成长瞬间：玩耍、第一次、学会新本领、开心可爱的小事、出门游玩等，title 概括这件事。
@@ -508,6 +727,11 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
 7. 同一句话如果已经输出 weight、medical 或 diet，就不要再输出 growth。
 8. growth 的 title 用用户的原话概括，不要写成医疗建议；note 保留原始描述。
 9. occurredAt 解析用户陈述的日期：支持“今天/昨天/前天/10月5号/2026-10-05”等；没有日期时用今天。
+10. appointment 只用于未来计划，例如“下周一要给手抓饼做个驱虫”“明天带猫去洗澡”。
+11. scheduledAt 必须解析成具体日期：“明天/后天/下周X/周X/下个月X号/10月5号/N天后”等；
+    无法确定日期时不要输出 appointment。
+12. appointmentType 按内容选择：驱虫=deworming，疫苗/接种=vaccine，体检/复查=checkup，
+    看病/就诊/复诊/手术/绝育=medical，喂药/用药=medication，洗澡/洗护/美容=grooming，其余=other。
 ''';
 }
 
@@ -537,8 +761,9 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
     if (pet == null && pets.length == 1 && petName.isEmpty) pet = pets.first;
     final note = ((item['note'] as String?) ?? '').trim();
     final rawOccurredAt = ((item['occurredAt'] as String?) ?? '').trim();
-    final occurredAt =
-        _normalizeDate(rawOccurredAt).isEmpty ? _today() : _normalizeDate(rawOccurredAt);
+    final occurredAt = _normalizeDate(rawOccurredAt).isEmpty
+        ? _today()
+        : _normalizeDate(rawOccurredAt);
     if (kind == 'pet') {
       final name = ((item['name'] as String?) ?? '').trim();
       if (name.isEmpty || name.length > 20) continue;
@@ -588,7 +813,36 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
       ));
       continue;
     }
-    if (kind == 'weight') {
+    if (kind == 'appointment') {
+      var scheduledAt =
+          _normalizeDate(((item['scheduledAt'] as String?) ?? '').trim());
+      if (scheduledAt.isEmpty) {
+        // Some models put the plan date in occurredAt instead.
+        scheduledAt =
+            _normalizeDate(((item['occurredAt'] as String?) ?? '').trim());
+      }
+      if (scheduledAt.isEmpty) continue;
+      var type = ((item['appointmentType'] as String?) ?? 'other').trim();
+      if (!appointmentTypeLabels.containsKey(type)) {
+        type = appointmentTypeForText(note) ?? 'other';
+      }
+      final label = appointmentTypeLabel(type);
+      final rawTitle = ((item['title'] as String?) ?? '').trim();
+      final title = rawTitle.isEmpty
+          ? label
+          : (rawTitle.length > 30 ? rawTitle.substring(0, 30) : rawTitle);
+      out.add(CaptureEvent(
+        kind: 'appointment',
+        petId: pet?.id ?? '',
+        petName: pet?.name ?? petName,
+        label: '预约 $scheduledAt · $label',
+        title: title,
+        occurredAt: scheduledAt,
+        scheduledAt: scheduledAt,
+        appointmentType: type,
+        note: note,
+      ));
+    } else if (kind == 'weight') {
       final kg = (item['weightKg'] as num?)?.toDouble() ?? 0;
       if (kg <= 0 || kg > 120) continue;
       out.add(CaptureEvent(
@@ -672,6 +926,24 @@ Future<AiCapture> applyCapture(ApiClient api, CaptureEvent event) async {
   if (event.petId.isEmpty) {
     throw StateError('缺少宠物');
   }
+  if (event.kind == 'appointment') {
+    if (event.scheduledAt.isEmpty) {
+      throw StateError('缺少预约日期');
+    }
+    final appointment = await api.createAppointment(event.petId, {
+      'type': event.appointmentType.isEmpty ? 'other' : event.appointmentType,
+      'title': event.title.isEmpty ? event.label : event.title,
+      'scheduledAt': event.scheduledAt,
+      'note': event.note,
+    });
+    return AiCapture(
+      kind: 'appointment',
+      id: appointment.id,
+      petId: event.petId,
+      petName: event.petName,
+      label: '${event.petName} · ${event.label}',
+    );
+  }
   final occurredAt = event.occurredAt.isEmpty ? _today() : event.occurredAt;
   if (event.kind == 'weight') {
     final weight = await api.createWeight(event.petId, {
@@ -712,6 +984,8 @@ Future<void> undoCapture(ApiClient api, AiCapture capture) async {
     await api.deletePet(capture.id);
   } else if (capture.kind == 'weight') {
     await api.deleteWeight(capture.id);
+  } else if (capture.kind == 'appointment') {
+    await api.deleteAppointment(capture.id);
   } else {
     await api.deleteRecord(capture.id);
   }

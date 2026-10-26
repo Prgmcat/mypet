@@ -14,7 +14,7 @@ class AiCapture {
     this.undone = false,
   });
 
-  final String kind; // weight | record
+  final String kind; // weight | record | pet | appointment
   final String id;
   final String petId;
   final String petName;

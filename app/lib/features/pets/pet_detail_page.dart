@@ -10,6 +10,7 @@ import '../../core/models.dart';
 import '../../core/session.dart';
 import 'growth_page.dart';
 import 'pet_avatar.dart';
+import '../appointments/appointment_page.dart';
 import '../records/timeline_page.dart';
 import '../records/weight_page.dart';
 import '../sharing/pet_share_page.dart';
@@ -30,6 +31,7 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
   bool _loadingDetails = true;
   List<HealthRecord> _records = const [];
   List<WeightRecord> _weights = const [];
+  List<Appointment> _appointments = const [];
   String? _detailsError;
   bool _offline = false;
 
@@ -50,11 +52,14 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       final pet = await api.getPet(_pet.id);
       final records = await api.listRecords(_pet.id);
       final weights = await api.listWeights(_pet.id);
+      final appointments =
+          await api.listPetAppointments(_pet.id, status: 'pending');
       if (!mounted) return;
       setState(() {
         _pet = pet;
         _records = records;
         _weights = weights;
+        _appointments = appointments;
         _loadingDetails = false;
         _offline = false;
       });
@@ -118,6 +123,13 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
   Future<void> _openWeights() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => WeightPage(pet: _pet)),
+    );
+    if (mounted) _loadDetails();
+  }
+
+  Future<void> _openAppointments() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AppointmentPage(pet: _pet)),
     );
     if (mounted) _loadDetails();
   }
@@ -419,6 +431,28 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
           Card(
             child: ListTile(
               leading: const CircleAvatar(
+                backgroundColor: Color(0xFFF1E4D8),
+                child: Text('📅', style: TextStyle(fontSize: 18)),
+              ),
+              title: Text('预约',
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(
+                _appointments.isEmpty
+                    ? '还没有预约，比如下周一去驱虫'
+                    : '${_appointments.first.scheduledAt} · '
+                        '${_appointments.first.title}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openAppointments,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(
                 backgroundColor: Color(0xFFEAF3EA),
                 child: Text('⚖️', style: TextStyle(fontSize: 18)),
               ),
@@ -463,7 +497,6 @@ class _PetDetailPageState extends ConsumerState<PetDetailPage> {
       ),
     );
   }
-
 }
 
 class _InfoRow extends StatelessWidget {

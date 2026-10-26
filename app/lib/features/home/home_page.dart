@@ -27,6 +27,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   bool _offline = false;
   DateTime? _cachedAt;
   List<Reminder> _pending = const [];
+  List<Appointment> _pendingAppointments = const [];
 
   @override
   void initState() {
@@ -71,8 +72,13 @@ class _HomePageState extends ConsumerState<HomePage> {
           _cachedAt = at;
         });
         final reminders = await LocalCache.loadReminders(userId, 'pending');
-        if (reminders.isNotEmpty && mounted) {
-          setState(() => _pending = reminders);
+        final appointments =
+            await LocalCache.loadAppointments(userId, 'pending');
+        if (mounted) {
+          setState(() {
+            if (reminders.isNotEmpty) _pending = reminders;
+            if (appointments.isNotEmpty) _pendingAppointments = appointments;
+          });
         }
         return;
       }
@@ -87,19 +93,40 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _loadReminders() async {
     final userId = ref.read(sessionProvider).user?.id;
     try {
-      final pending =
-          await ref.read(apiClientProvider).listReminders(status: 'pending');
+      final api = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        api.listReminders(status: 'pending'),
+        api.listAppointments(status: 'pending'),
+      ]);
+      final pending = results[0] as List<Reminder>;
+      final appointments = results[1] as List<Appointment>;
       if (!mounted) return;
-      setState(() => _pending = pending);
+      setState(() {
+        _pending = pending;
+        _pendingAppointments = appointments;
+      });
       if (userId != null) {
         await LocalCache.saveReminders(userId, 'pending', pending);
+        await LocalCache.saveAppointments(userId, 'pending', appointments);
       }
-      await NotificationService.syncReminders(pending);
+      await NotificationService.syncTasks(
+        reminders: pending,
+        appointments: appointments,
+      );
     } catch (_) {
       // Reminders should never block the pet list.
       if (userId != null) {
         final cached = await LocalCache.loadReminders(userId, 'pending');
-        if (cached.isNotEmpty && mounted) setState(() => _pending = cached);
+        final cachedAppointments =
+            await LocalCache.loadAppointments(userId, 'pending');
+        if (mounted) {
+          setState(() {
+            if (cached.isNotEmpty) _pending = cached;
+            if (cachedAppointments.isNotEmpty) {
+              _pendingAppointments = cachedAppointments;
+            }
+          });
+        }
       }
     }
   }
@@ -204,8 +231,9 @@ class _HomePageState extends ConsumerState<HomePage> {
             tooltip: '照护提醒',
             onPressed: _openReminders,
             icon: Badge(
-              isLabelVisible: _pending.isNotEmpty,
-              label: Text('${_pending.length}'),
+              isLabelVisible:
+                  _pending.isNotEmpty || _pendingAppointments.isNotEmpty,
+              label: Text('${_pending.length + _pendingAppointments.length}'),
               child: const Icon(Icons.notifications_none),
             ),
           ),

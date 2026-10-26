@@ -374,6 +374,99 @@ class Reminder {
       };
 }
 
+/// A one-off care plan. Completing it writes a linked health record but does
+/// not change the periodic reminder rules.
+class Appointment {
+  final String id;
+  final String petId;
+  final String petName;
+  final String type;
+  final String title;
+  final String scheduledAt;
+  final String note;
+  final List<int> advanceOffsets;
+  final String status;
+  final String snoozedUntil;
+  final String completedAt;
+  final String recordId;
+  final String role;
+
+  Appointment({
+    required this.id,
+    required this.petId,
+    required this.petName,
+    required this.type,
+    required this.title,
+    required this.scheduledAt,
+    required this.note,
+    required this.advanceOffsets,
+    required this.status,
+    required this.snoozedUntil,
+    required this.completedAt,
+    required this.recordId,
+    required this.role,
+  });
+
+  factory Appointment.fromJson(Map<String, dynamic> json) => Appointment(
+        id: json['id'] as String,
+        petId: (json['petId'] as String?) ?? '',
+        petName: (json['petName'] as String?) ?? '',
+        type: (json['type'] as String?) ?? 'other',
+        title: (json['title'] as String?) ?? '',
+        scheduledAt: (json['scheduledAt'] as String?) ?? '',
+        note: (json['note'] as String?) ?? '',
+        advanceOffsets: ((json['advanceOffsets'] as List?) ?? const [])
+            .map((e) => (e as num).toInt())
+            .toList(growable: false),
+        status: (json['status'] as String?) ?? 'pending',
+        snoozedUntil: (json['snoozedUntil'] as String?) ?? '',
+        completedAt: (json['completedAt'] as String?) ?? '',
+        recordId: (json['recordId'] as String?) ?? '',
+        role: (json['role'] as String?) ?? 'owner',
+      );
+
+  String get typeLabel => switch (type) {
+        'vaccine' => '疫苗',
+        'deworming' => '驱虫',
+        'checkup' => '体检',
+        'medical' => '就诊',
+        'medication' => '用药',
+        'grooming' => '洗护',
+        _ => '预约',
+      };
+
+  String get emoji => switch (type) {
+        'vaccine' => '💉',
+        'deworming' => '💊',
+        'checkup' => '🩺',
+        'medical' => '🏥',
+        'medication' => '💊',
+        'grooming' => '🛁',
+        _ => '📅',
+      };
+
+  bool get canAct =>
+      role != 'viewer' && status != 'done' && status != 'skipped';
+
+  bool get isDone => status == 'done' || status == 'skipped';
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'petId': petId,
+        'petName': petName,
+        'type': type,
+        'title': title,
+        'scheduledAt': scheduledAt,
+        'note': note,
+        'advanceOffsets': advanceOffsets,
+        'status': status,
+        'snoozedUntil': snoozedUntil,
+        'completedAt': completedAt,
+        'recordId': recordId,
+        'role': role,
+      };
+}
+
 class ReminderRule {
   final String id;
   final String petId;

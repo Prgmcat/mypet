@@ -19,8 +19,8 @@ class LocalCache {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _key(userId, 'pets'), jsonEncode(pets.map((p) => p.toJson()).toList()));
-    await prefs.setString(_key(userId, 'saved_at'),
-        DateTime.now().toIso8601String());
+    await prefs.setString(
+        _key(userId, 'saved_at'), DateTime.now().toIso8601String());
   }
 
   static Future<List<Pet>> loadPets(String userId) async {
@@ -86,8 +86,8 @@ class LocalCache {
       _key(userId, 'reminders_$status'),
       jsonEncode(reminders.map((r) => r.toJson()).toList()),
     );
-    await prefs.setString(_key(userId, 'saved_at'),
-        DateTime.now().toIso8601String());
+    await prefs.setString(
+        _key(userId, 'saved_at'), DateTime.now().toIso8601String());
   }
 
   static Future<List<Reminder>> loadReminders(
@@ -97,6 +97,30 @@ class LocalCache {
     try {
       return (jsonDecode(raw) as List)
           .map((e) => Reminder.fromJson(e as Map<String, dynamic>))
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> saveAppointments(
+      String userId, String status, List<Appointment> appointments) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _key(userId, 'appointments_$status'),
+      jsonEncode(appointments.map((a) => a.toJson()).toList()),
+    );
+    await prefs.setString(
+        _key(userId, 'saved_at'), DateTime.now().toIso8601String());
+  }
+
+  static Future<List<Appointment>> loadAppointments(
+      String userId, String status) async {
+    final raw = await _read(userId, 'appointments_$status');
+    if (raw == null) return const [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => Appointment.fromJson(e as Map<String, dynamic>))
           .toList(growable: false);
     } catch (_) {
       return const [];
