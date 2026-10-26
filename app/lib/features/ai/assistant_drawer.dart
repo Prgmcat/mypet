@@ -103,12 +103,12 @@ class _AssistantDrawerState extends ConsumerState<AssistantDrawer> {
             ListTile(
               leading: const Icon(Icons.pets_outlined),
               title: const Text('宠物档案'),
-              onTap: () => _open(const HomePage()),
+              onTap: () => _open(const HomePage(), keepDrawer: true),
             ),
             ListTile(
               leading: const Icon(Icons.notifications_none),
               title: const Text('照护提醒'),
-              onTap: () => _open(const ReminderPage()),
+              onTap: () => _open(const ReminderPage(), keepDrawer: true),
             ),
             ListTile(
               leading: const Icon(Icons.settings_outlined),

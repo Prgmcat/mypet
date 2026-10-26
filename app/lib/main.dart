@@ -47,6 +47,12 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
           ),
         ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
+        ),
       ),
       home: const _RootPage(),
     );

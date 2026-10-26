@@ -78,9 +78,9 @@ go run ./cmd/mypet doctor -data ./data
 
 ## 运行 Android App
 
-App 内置服务器域名 `http://yangqingwen0911.iask.in`，登录页不再显示或要求填写服务器地址。
+App 默认使用内置服务器域名 `http://yangqingwen0911.iask.in`。登录页可点「使用自建服务器」填写独立部署地址；设置后会在「设置 → 服务器」显示该地址，留空或点「恢复默认」则回到内置域名。
 
-本地开发时用 `--dart-define` 覆盖服务器地址（模拟器用 `http://10.0.2.2:8787`，真机可配合 `adb reverse tcp:8787 tcp:8787` 使用 `http://127.0.0.1:8787`），或在局域网内使用电脑 IP：
+本地开发可直接在登录页填写 `http://10.0.2.2:8787`（模拟器），真机可配合 `adb reverse tcp:8787 tcp:8787` 使用 `http://127.0.0.1:8787`；也可以在构建时用 `--dart-define` 覆盖默认地址：
 
 ```bash
 flutter run --dart-define=SERVER_URL=http://10.0.2.2:8787

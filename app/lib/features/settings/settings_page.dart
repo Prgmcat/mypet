@@ -299,7 +299,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 ListTile(
                   leading: const Icon(Icons.dns_outlined),
                   title: const Text('服务器'),
-                  subtitle: const Text('连接状态与版本'),
+                  subtitle: Text(
+                    session.serverIsCustom ? session.serverUrl : '连接状态与版本',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   trailing: Text(
                     _checking
                         ? '检查中…'

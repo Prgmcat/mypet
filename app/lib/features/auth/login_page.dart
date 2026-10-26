@@ -161,6 +161,61 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
+  Future<void> _editServer() async {
+    final state = ref.read(sessionProvider);
+    final controller = TextEditingController(
+      text: state.serverIsCustom ? state.serverUrl : '',
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('自建服务器'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '填写独立部署的服务器地址；留空则使用默认服务器。',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(
+                hintText: 'http://192.168.1.10:8787',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, ''),
+            child: const Text('恢复默认'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    final error = await ref.read(sessionProvider.notifier).setServerUrl(result);
+    if (!mounted) return;
+    if (error != null) {
+      showToast(context, error, error: true);
+      return;
+    }
+    showToast(context, result.trim().isEmpty ? '已恢复默认服务器' : '服务器地址已保存');
+  }
+
   String _initialOf(SavedAccount account) {
     final label = account.displayName.trim().isEmpty
         ? account.username
@@ -170,6 +225,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final session = ref.watch(sessionProvider);
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
@@ -326,13 +382,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                               ),
                       child: const Text('有邀请码？注册新账号'),
                     ),
-                    if (_accounts.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text('账号密码仅保存在本机安全存储。',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.black45)),
-                    ],
+                    TextButton.icon(
+                      onPressed: _loading ? null : _editServer,
+                      icon: const Icon(Icons.dns_outlined, size: 16),
+                      label: Text(
+                        session.serverIsCustom
+                            ? '自建服务器：${Uri.tryParse(session.serverUrl)?.authority ?? session.serverUrl}'
+                            : '使用自建服务器',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                 ),
               ),

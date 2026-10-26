@@ -3,19 +3,21 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'accounts.dart';
 import 'api_client.dart';
 import 'cache.dart';
 import 'models.dart';
 
-/// The app is intentionally single-server: the domain is built in and the
-/// interface never asks the user to configure it.
+/// Built-in server used when the user has not configured a self-hosted one.
+/// It can also be overridden at build time with `--dart-define=SERVER_URL=...`.
 const defaultServerUrl = String.fromEnvironment(
   'SERVER_URL',
   defaultValue: 'http://yangqingwen0911.iask.in',
 );
 const _tokenKey = 'mypet_device_token';
+const _serverKey = 'mypet_custom_server_url';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
 
@@ -27,6 +29,7 @@ final sessionProvider =
 class SessionState {
   final bool loading;
   final String serverUrl;
+  final bool serverIsCustom;
   final String? token;
   final User? user;
   final String? error;
@@ -35,6 +38,7 @@ class SessionState {
   const SessionState({
     required this.loading,
     required this.serverUrl,
+    this.serverIsCustom = false,
     this.token,
     this.user,
     this.error,
@@ -51,6 +55,7 @@ class SessionState {
   SessionState copyWith({
     bool? loading,
     String? serverUrl,
+    bool? serverIsCustom,
     String? token,
     User? user,
     String? error,
@@ -62,6 +67,7 @@ class SessionState {
     return SessionState(
       loading: loading ?? this.loading,
       serverUrl: serverUrl ?? this.serverUrl,
+      serverIsCustom: serverIsCustom ?? this.serverIsCustom,
       token: clearToken ? null : (token ?? this.token),
       user: clearUser ? null : (user ?? this.user),
       error: clearError ? null : (error ?? this.error),
@@ -81,12 +87,15 @@ class SessionController extends StateNotifier<SessionState> {
   );
 
   Future<void> _restore() async {
-    const serverUrl = defaultServerUrl;
+    final custom = await _loadCustomServer();
+    final serverUrl = custom ?? defaultServerUrl;
+    final isCustom = custom != null;
     final token = await _secure.read(key: _tokenKey);
     if (token == null || token.isEmpty) {
-      state = const SessionState(
+      state = SessionState(
         loading: false,
-        serverUrl: defaultServerUrl,
+        serverUrl: serverUrl,
+        serverIsCustom: isCustom,
       );
       return;
     }
@@ -96,16 +105,54 @@ class SessionController extends StateNotifier<SessionState> {
       state = SessionState(
         loading: false,
         serverUrl: serverUrl,
+        serverIsCustom: isCustom,
         token: token,
         user: user,
       );
     } catch (_) {
       await _secure.delete(key: _tokenKey);
-      state = const SessionState(
+      state = SessionState(
         loading: false,
-        serverUrl: defaultServerUrl,
+        serverUrl: serverUrl,
+        serverIsCustom: isCustom,
       );
     }
+  }
+
+  Future<String?> _loadCustomServer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_serverKey)?.trim() ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  /// Persists a user-supplied self-hosted server address. An empty value
+  /// restores the built-in default. Returns a validation error, or null.
+  Future<String?> setServerUrl(String raw) async {
+    if (state.isLoggedIn) return '请先退出登录再切换服务器';
+    final value = raw.trim();
+    String? custom;
+    if (value.isNotEmpty) {
+      final uri = Uri.tryParse(value);
+      if (uri == null ||
+          (uri.scheme != 'http' && uri.scheme != 'https') ||
+          uri.host.isEmpty) {
+        return '请输入 http:// 或 https:// 开头的完整地址';
+      }
+      custom = value.replaceFirst(RegExp(r'/+$'), '');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (custom == null) {
+      await prefs.remove(_serverKey);
+    } else {
+      await prefs.setString(_serverKey, custom);
+    }
+    final serverUrl = custom ?? defaultServerUrl;
+    _api.configure(baseUrl: serverUrl);
+    state = state.copyWith(
+      serverUrl: serverUrl,
+      serverIsCustom: custom != null,
+    );
+    return null;
   }
 
   Future<void> login({
@@ -115,10 +162,11 @@ class SessionController extends StateNotifier<SessionState> {
     // Do not flip `loading` here: the root route would swap the login page for
     // the splash screen and the failure message would never be seen. The login
     // page owns its own progress indicator.
-    state = state.copyWith(clearError: true, serverUrl: defaultServerUrl);
+    final serverUrl = state.serverUrl;
+    state = state.copyWith(clearError: true, serverUrl: serverUrl);
     try {
       final result = await _api.login(
-        baseUrl: defaultServerUrl,
+        baseUrl: serverUrl,
         username: username,
         password: password,
         deviceName: await _deviceName(),
@@ -131,7 +179,8 @@ class SessionController extends StateNotifier<SessionState> {
       );
       state = SessionState(
         loading: false,
-        serverUrl: defaultServerUrl,
+        serverUrl: serverUrl,
+        serverIsCustom: state.serverIsCustom,
         token: result.token,
         user: result.user,
       );
@@ -157,10 +206,11 @@ class SessionController extends StateNotifier<SessionState> {
   }) async {
     final previousUser = state.user;
     final previousToken = state.token;
+    final serverUrl = state.serverUrl;
     LoginResult result;
     try {
       result = await _api.login(
-        baseUrl: defaultServerUrl,
+        baseUrl: serverUrl,
         username: username,
         password: password,
         deviceName: await _deviceName(),
@@ -175,7 +225,7 @@ class SessionController extends StateNotifier<SessionState> {
       // device through a short-lived client of its own.
       try {
         final oldApi = ApiClient()
-          ..configure(baseUrl: defaultServerUrl, token: previousToken);
+          ..configure(baseUrl: serverUrl, token: previousToken);
         await oldApi.logout().timeout(const Duration(seconds: 3));
       } catch (_) {
         // A stale device entry is better than failing the switch.
@@ -200,7 +250,8 @@ class SessionController extends StateNotifier<SessionState> {
     }
     state = SessionState(
       loading: false,
-      serverUrl: defaultServerUrl,
+      serverUrl: serverUrl,
+      serverIsCustom: state.serverIsCustom,
       token: result.token,
       user: result.user,
     );
@@ -215,7 +266,7 @@ class SessionController extends StateNotifier<SessionState> {
   }) async {
     try {
       await _api.register(
-        baseUrl: defaultServerUrl,
+        baseUrl: state.serverUrl,
         inviteCode: inviteCode,
         username: username,
         password: password,
@@ -248,9 +299,10 @@ class SessionController extends StateNotifier<SessionState> {
     } catch (_) {
       // Cache cleanup is best effort.
     }
-    state = const SessionState(
+    state = SessionState(
       loading: false,
-      serverUrl: defaultServerUrl,
+      serverUrl: state.serverUrl,
+      serverIsCustom: state.serverIsCustom,
     );
   }
 
