@@ -152,6 +152,26 @@ void main() {
     expect(previousUserTextForCapture(messages), isNull);
   });
 
+  test('capture undo is limited to two minutes', () {
+    final now = DateTime(2026, 10, 26, 12, 0);
+    expect(canUndoCaptureAt(now.toIso8601String(), now: now), true);
+    expect(
+      canUndoCaptureAt(
+        now.subtract(const Duration(minutes: 1, seconds: 59)).toIso8601String(),
+        now: now,
+      ),
+      true,
+    );
+    expect(
+      canUndoCaptureAt(
+        now.subtract(const Duration(minutes: 2, seconds: 1)).toIso8601String(),
+        now: now,
+      ),
+      false,
+    );
+    expect(canUndoCaptureAt('', now: now), false);
+  });
+
   test('viewer pets cannot receive automatic writes', () {
     final viewer = buildPet('p4', '小白', 'cat', role: 'viewer');
     expect(canAutoWrite(viewer), false);

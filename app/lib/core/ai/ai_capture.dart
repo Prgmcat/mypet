@@ -230,6 +230,15 @@ bool isRecordCommand(String text) => _recordCommandPattern.hasMatch(text);
 /// Viewer pets are shared read-only and cannot receive automatic writes.
 bool canAutoWrite(Pet pet) => pet.role != 'viewer';
 
+/// Automatic captures can be undone for two minutes after the card is created.
+const captureUndoWindow = Duration(minutes: 2);
+
+bool canUndoCaptureAt(String createdAt, {DateTime? now}) {
+  final created = DateTime.tryParse(createdAt);
+  if (created == null) return false;
+  return (now ?? DateTime.now()).isBefore(created.add(captureUndoWindow));
+}
+
 /// Finds the user message a bare "记下吧" command refers to. Returns null when
 /// there is no earlier message or it already produced a capture card.
 String? previousUserTextForCapture(List<AiStoredMessage> messages) {

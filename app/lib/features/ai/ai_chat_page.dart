@@ -599,7 +599,17 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     }
   }
 
+  bool _canUndoCapture(AiStoredMessage message) {
+    if (message.captures.every((c) => c.undone)) return false;
+    return canUndoCaptureAt(message.createdAt);
+  }
+
   Future<void> _undoCaptures(AiStoredMessage message) async {
+    if (!_canUndoCapture(message)) {
+      _snack('记录已超过 2 分钟，不能再撤销');
+      if (mounted) setState(() {});
+      return;
+    }
     final api = ref.read(apiClientProvider);
     var changed = false;
     for (final capture in message.captures) {
@@ -1585,9 +1595,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                 ),
               ),
               if (active.isNotEmpty)
-                TextButton(
+                _CaptureUndoButton(
+                  createdAt: message.createdAt,
                   onPressed: () => _undoCaptures(message),
-                  child: const Text('撤销'),
                 ),
             ],
           ),
@@ -1773,6 +1783,70 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.symmetric(horizontal: 4),
       constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+    );
+  }
+}
+
+/// Undo is available for two minutes after the capture card was created.
+/// The timer hides the button even when no other rebuild happens.
+class _CaptureUndoButton extends StatefulWidget {
+  const _CaptureUndoButton({
+    required this.createdAt,
+    required this.onPressed,
+  });
+
+  final String createdAt;
+  final VoidCallback onPressed;
+
+  @override
+  State<_CaptureUndoButton> createState() => _CaptureUndoButtonState();
+}
+
+class _CaptureUndoButtonState extends State<_CaptureUndoButton> {
+  Timer? _timer;
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CaptureUndoButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.createdAt != widget.createdAt) _schedule();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    final created = DateTime.tryParse(widget.createdAt);
+    if (created == null) {
+      _visible = false;
+      return;
+    }
+    final deadline = created.add(captureUndoWindow);
+    final remaining = deadline.difference(DateTime.now());
+    _visible = remaining > Duration.zero;
+    if (_visible) {
+      _timer = Timer(remaining, () {
+        if (mounted) setState(() => _visible = false);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_visible) return const SizedBox.shrink();
+    return TextButton(
+      onPressed: widget.onPressed,
+      child: const Text('撤销'),
     );
   }
 }
