@@ -117,7 +117,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     }
     if (!mounted) return;
     setState(() {});
-    _scrollToBottom();
+    // The reversed list starts at the newest message; no initial jump needed.
   }
 
   Future<List<PetProfileContext>> _loadContexts(
@@ -227,6 +227,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       _sending = false;
     });
     _input.clear();
+    _scrollToBottom(animate: false);
     _reloadContext();
   }
 
@@ -244,7 +245,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     });
     await _reloadContext();
     if (mounted) setState(() {});
-    _scrollToBottom();
+    _scrollToBottom(animate: false);
   }
 
   Future<void> _addPet() async {
@@ -260,14 +261,19 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (mounted) setState(() {});
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
-      _scroll.animateTo(
-        _scroll.position.maxScrollExtent + 200,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      // The message list is reversed, so offset 0 is the newest message.
+      if (animate) {
+        _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scroll.jumpTo(0);
+      }
     });
   }
 
@@ -799,6 +805,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                     _session = session;
                     _pet = matched;
                   });
+                  _scrollToBottom(animate: false);
                   await _reloadContext();
                   if (mounted) setState(() {});
                 },
@@ -1228,14 +1235,18 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
           Expanded(
             child: _session.messages.isEmpty && _streamingText.isEmpty
                 ? _emptyState()
-                : ListView(
-                    controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                    children: [
-                      for (final message in _session.messages) _bubble(message),
-                      if (_streamingText.isNotEmpty) _streamingBubble(),
-                      if (_error != null) _errorBanner(),
-                    ],
+                : SelectionArea(
+                    child: ListView(
+                      controller: _scroll,
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                      children: [
+                        if (_error != null) _errorBanner(),
+                        if (_streamingText.isNotEmpty) _streamingBubble(),
+                        for (final message in _session.messages.reversed)
+                          _bubble(message),
+                      ],
+                    ),
                   ),
           ),
           if (_session.messages.isNotEmpty && !_isGlobal && _pet != null)
@@ -1341,18 +1352,26 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             children: [
               GestureDetector(
                 onTap: () => _viewImage(path),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.file(
-                    File(path),
-                    width: 76,
-                    height: 76,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE3D8C9)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(path),
                       width: 76,
                       height: 76,
-                      color: const Color(0xFFF1E4D8),
-                      child: const Icon(Icons.broken_image, size: 20),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 76,
+                        height: 76,
+                        color: const Color(0xFFF1E4D8),
+                        child: const Icon(Icons.broken_image, size: 20),
+                      ),
                     ),
                   ),
                 ),
@@ -1607,19 +1626,28 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                         for (final path in message.images)
                           GestureDetector(
                             onTap: () => _viewImage(path),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(
-                                File(path),
-                                width: 120,
-                                height: 120,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Container(
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: const Color(0xFFE3D8C9)),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.file(
+                                  File(path),
                                   width: 120,
                                   height: 120,
-                                  color: const Color(0xFFF1E4D8),
-                                  child: const Icon(Icons.broken_image,
-                                      size: 24, color: Colors.black38),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 120,
+                                    height: 120,
+                                    color: const Color(0xFFF1E4D8),
+                                    child: const Icon(Icons.broken_image,
+                                        size: 24, color: Colors.black38),
+                                  ),
                                 ),
                               ),
                             ),
