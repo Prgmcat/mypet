@@ -45,6 +45,9 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   late AiSession _session = widget.session ?? _newSession(widget.pet);
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  double _drawerDragStartX = 0;
+  double _drawerDragDistance = 0;
 
   List<Pet> _pets = const [];
   List<PetProfileContext> _contexts = const [];
@@ -261,6 +264,28 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     if (mounted) setState(() {});
   }
 
+  void _onDrawerDragStart(DragStartDetails details) {
+    _drawerDragStartX = details.localPosition.dx;
+    _drawerDragDistance = 0;
+  }
+
+  void _onDrawerDragUpdate(DragUpdateDetails details) {
+    _drawerDragDistance += details.delta.dx;
+  }
+
+  void _onDrawerDragEnd(DragEndDetails details) {
+    if (!_isGlobal) return;
+    final velocity = details.primaryVelocity ?? 0;
+    // Start in the left 40% of the page. The very edge is reserved by
+    // Android's system back gesture on gesture navigation.
+    final leftZone = MediaQuery.sizeOf(context).width * 0.4;
+    if (_drawerDragStartX <= leftZone &&
+        _drawerDragDistance >= 60 &&
+        velocity >= 0) {
+      _scaffoldKey.currentState?.openDrawer();
+    }
+  }
+
   void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
@@ -388,7 +413,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
     Future<List<CaptureEvent>>? fallbackCaptures;
     if (!isRetry &&
         localCaptures.isEmpty &&
-        (shouldTryAiCapture(captureText, capturePets) || isRecordCommand(text)) &&
+        (shouldTryAiCapture(captureText, capturePets) ||
+            isRecordCommand(text)) &&
         _config != null) {
       fallbackCaptures = () async {
         try {
@@ -1063,6 +1089,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
+      drawerEnableOpenDragGesture: false,
       drawer: _isGlobal
           ? AssistantDrawer(
               currentSessionId: _session.id,
@@ -1187,162 +1215,171 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          if (_configLoaded && _config == null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              color: const Color(0xFFFDF0DC),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '还没有配置 AI 服务。Key 只保存在本机，不会上传服务端。',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _openSettings,
-                    child: const Text('去配置'),
-                  ),
-                ],
-              ),
-            ),
-          if (_showRedCard)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFBEAE9),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE7B4AE)),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '🚨 紧急就医提示',
-                    style: TextStyle(
-                      color: Color(0xFF9B2C2C),
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    '你的描述包含紧急红旗症状：请立即联系或前往宠物医院，'
-                    '不要等待在线建议。若在途中，保持宠物安静并避免自行喂药。',
-                    style: TextStyle(
-                      color: Color(0xFF9B2C2C),
-                      fontSize: 13,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: _session.messages.isEmpty && _streamingText.isEmpty
-                ? _emptyState()
-                : SelectionArea(
-                    child: ListView(
-                      controller: _scroll,
-                      reverse: true,
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                      children: [
-                        if (_error != null) _errorBanner(),
-                        if (_streamingText.isNotEmpty) _streamingBubble(),
-                        for (final message in _session.messages.reversed)
-                          _bubble(message),
-                      ],
-                    ),
-                  ),
-          ),
-          if (_session.messages.isNotEmpty && !_isGlobal && _pet != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: TextButton.icon(
-                onPressed: _sending ? null : _extractRecord,
-                icon: const Icon(Icons.playlist_add, size: 18),
-                label: const Text('把这段对话转成记录草稿'),
-              ),
-            ),
-          if (_pendingCaptures.isNotEmpty) _pendingCaptureCard(),
-          if (_pendingImages.isNotEmpty) _pendingImagesStrip(),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: const Color(0xFFE9E1D7)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0F000000),
-                      blurRadius: 10,
-                      offset: Offset(0, 3),
-                    ),
-                  ],
-                ),
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: _onDrawerDragStart,
+        onHorizontalDragUpdate: _onDrawerDragUpdate,
+        onHorizontalDragEnd: _onDrawerDragEnd,
+        child: Column(
+          children: [
+            if (_configLoaded && _config == null)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: const Color(0xFFFDF0DC),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    _inputIcon(
-                      Icons.add_photo_alternate_outlined,
-                      tooltip: '发送图片',
-                      onPressed: _pickingImages ? null : _pickImages,
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        style: const TextStyle(fontSize: 14, height: 1.4),
-                        decoration: const InputDecoration(
-                          hintText: '发消息…',
-                          border: InputBorder.none,
-                          filled: false,
-                          isDense: true,
-                          contentPadding:
-                              EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-                        ),
+                    const Expanded(
+                      child: Text(
+                        '还没有配置 AI 服务。Key 只保存在本机，不会上传服务端。',
+                        style:
+                            TextStyle(fontSize: 12, color: Color(0xFF8A4B08)),
                       ),
                     ),
-                    const SizedBox(width: 2),
-                    SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: _sending
-                          ? IconButton.filled(
-                              onPressed: _stop,
-                              padding: EdgeInsets.zero,
-                              iconSize: 20,
-                              constraints: const BoxConstraints.tightFor(
-                                  width: 40, height: 40),
-                              icon: const Icon(Icons.stop),
-                              tooltip: '停止生成',
-                            )
-                          : IconButton.filled(
-                              onPressed: () => _send(),
-                              padding: EdgeInsets.zero,
-                              iconSize: 20,
-                              constraints: const BoxConstraints.tightFor(
-                                  width: 40, height: 40),
-                              icon: const Icon(Icons.arrow_upward),
-                              tooltip: '发送',
-                            ),
+                    TextButton(
+                      onPressed: _openSettings,
+                      child: const Text('去配置'),
                     ),
                   ],
                 ),
               ),
+            if (_showRedCard)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFBEAE9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE7B4AE)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🚨 紧急就医提示',
+                      style: TextStyle(
+                        color: Color(0xFF9B2C2C),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      '你的描述包含紧急红旗症状：请立即联系或前往宠物医院，'
+                      '不要等待在线建议。若在途中，保持宠物安静并避免自行喂药。',
+                      style: TextStyle(
+                        color: Color(0xFF9B2C2C),
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: _session.messages.isEmpty && _streamingText.isEmpty
+                  ? _emptyState()
+                  : SelectionArea(
+                      child: ListView(
+                        controller: _scroll,
+                        reverse: true,
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                        children: [
+                          if (_error != null) _errorBanner(),
+                          if (_streamingText.isNotEmpty) _streamingBubble(),
+                          for (final message in _session.messages.reversed)
+                            _bubble(message),
+                        ],
+                      ),
+                    ),
             ),
-          ),
-        ],
+            if (_session.messages.isNotEmpty && !_isGlobal && _pet != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: TextButton.icon(
+                  onPressed: _sending ? null : _extractRecord,
+                  icon: const Icon(Icons.playlist_add, size: 18),
+                  label: const Text('把这段对话转成记录草稿'),
+                ),
+              ),
+            if (_pendingCaptures.isNotEmpty) _pendingCaptureCard(),
+            if (_pendingImages.isNotEmpty) _pendingImagesStrip(),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(color: const Color(0xFFE9E1D7)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0F000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _inputIcon(
+                        Icons.add_photo_alternate_outlined,
+                        tooltip: '发送图片',
+                        onPressed: _pickingImages ? null : _pickImages,
+                      ),
+                      Expanded(
+                        child: TextField(
+                          controller: _input,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.newline,
+                          style: const TextStyle(fontSize: 14, height: 1.4),
+                          decoration: const InputDecoration(
+                            hintText: '发消息…',
+                            border: InputBorder.none,
+                            filled: false,
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: _sending
+                            ? IconButton.filled(
+                                onPressed: _stop,
+                                padding: EdgeInsets.zero,
+                                iconSize: 20,
+                                constraints: const BoxConstraints.tightFor(
+                                    width: 40, height: 40),
+                                icon: const Icon(Icons.stop),
+                                tooltip: '停止生成',
+                              )
+                            : IconButton.filled(
+                                onPressed: () => _send(),
+                                padding: EdgeInsets.zero,
+                                iconSize: 20,
+                                constraints: const BoxConstraints.tightFor(
+                                    width: 40, height: 40),
+                                icon: const Icon(Icons.arrow_upward),
+                                tooltip: '发送',
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1641,8 +1678,8 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                    color: const Color(0xFFE3D8C9)),
+                                border:
+                                    Border.all(color: const Color(0xFFE3D8C9)),
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
