@@ -50,7 +50,7 @@ class AiStoredMessage {
   });
 
   final String role;
-  final String content;
+  String content;
   final String riskLevel; // '', 'l1', 'l2', 'l3'
   int feedback; // 0 none, 1 useful, -1 not useful
   final String createdAt;

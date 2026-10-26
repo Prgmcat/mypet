@@ -362,17 +362,27 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         ),
     ];
     final buffer = StringBuffer();
+    var answer = '';
     _cancelToken = CancelToken();
 
     // Capture facts from the user's own words. Local rules are deterministic
     // and free; the model is only asked when local rules found nothing.
+    // A bare "记下吧" command has no facts, so use the previous user message.
     final capturePets = _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
-    final localCaptures =
+    var captureText = text;
+    var localCaptures =
         isRetry ? <CaptureEvent>[] : parseLocalCaptures(text, capturePets);
+    if (!isRetry && localCaptures.isEmpty && isRecordCommand(text)) {
+      final previous = previousUserTextForCapture(_session.messages);
+      if (previous != null) {
+        captureText = previous;
+        localCaptures = parseLocalCaptures(captureText, capturePets);
+      }
+    }
     Future<List<CaptureEvent>>? fallbackCaptures;
     if (!isRetry &&
         localCaptures.isEmpty &&
-        looksRecordWorthy(text) &&
+        (shouldTryAiCapture(captureText, capturePets) || isRecordCommand(text)) &&
         _config != null) {
       fallbackCaptures = () async {
         try {
@@ -381,7 +391,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
             config: _config!,
             apiKey: _apiKey,
             pets: capturePets,
-            text: text,
+            text: captureText,
             cancelToken: _cancelToken,
           );
         } catch (_) {
@@ -403,7 +413,7 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         _scrollToBottom();
       }
       if (!mounted) return;
-      final answer = buffer.toString().trim();
+      answer = buffer.toString().trim();
       if (answer.isEmpty) {
         throw AiException('模型没有返回内容，请重试');
       }
@@ -434,13 +444,36 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
       _fail('AI 请求失败，请检查网络或模型配置');
     } finally {
       if (!isRetry) {
-        await _handleCaptures(text, localCaptures, fallbackCaptures);
+        final wrote = await _handleCaptures(localCaptures, fallbackCaptures);
+        if (!wrote && answer.isNotEmpty && _claimsWrite(answer)) {
+          await _appendCaptureDisclaimer(answer);
+        }
       }
     }
   }
 
-  Future<void> _handleCaptures(
-    String text,
+  static final _writeClaimPattern = RegExp(
+    r'(已(记录|保存|归档|写入|添加)|记下了|帮你记|记录好了|存好了|已经记|写进(了)?档案|归档到)',
+  );
+
+  bool _claimsWrite(String text) => _writeClaimPattern.hasMatch(text);
+
+  Future<void> _appendCaptureDisclaimer(String answer) async {
+    const note = '\n\n（提示：本条尚未写入档案，请以界面上的「已自动记录」卡片为准；'
+        '如需保存，请到对应宠物的成长/健康记录页补记。）';
+    for (var i = _session.messages.length - 1; i >= 0; i--) {
+      final message = _session.messages[i];
+      if (message.role == 'assistant' && message.content == answer) {
+        if (message.content.contains('本条尚未写入档案')) return;
+        message.content = '${message.content}$note';
+        await AiSessionStore.upsert(_userId, _session);
+        if (mounted) setState(() {});
+        return;
+      }
+    }
+  }
+
+  Future<bool> _handleCaptures(
     List<CaptureEvent> local,
     Future<List<CaptureEvent>>? fallback,
   ) async {
@@ -452,17 +485,32 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         events = const [];
       }
     }
-    if (events.isEmpty) return;
+    if (events.isEmpty) return false;
     final pets = _isGlobal || _pet == null ? _pets : <Pet>[_pet!];
     final resolved = <CaptureEvent>[];
     final pending = <CaptureEvent>[];
+    final blocked = <String>{};
     for (final event in events) {
-      if (event.kind == 'pet' || event.petId.isNotEmpty) {
+      if (event.kind == 'pet') {
         resolved.add(event);
+      } else if (event.petId.isNotEmpty) {
+        Pet? target;
+        for (final pet in pets) {
+          if (pet.id == event.petId) target = pet;
+        }
+        if (target != null && !canAutoWrite(target)) {
+          blocked.add(target.name);
+        } else {
+          resolved.add(event);
+        }
       } else if (pets.length == 1) {
-        event.petId = pets.first.id;
-        event.petName = pets.first.name;
-        resolved.add(event);
+        if (!canAutoWrite(pets.first)) {
+          blocked.add(pets.first.name);
+        } else {
+          event.petId = pets.first.id;
+          event.petName = pets.first.name;
+          resolved.add(event);
+        }
       } else {
         pending.add(event);
       }
@@ -492,9 +540,13 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
         }
       }
     }
-    if (!mounted) return;
+    if (!mounted) return captures.isNotEmpty;
+    if (blocked.isNotEmpty) {
+      _snack('「${blocked.join('、')}」是共享只读宠物，无法自动记录');
+    }
     setState(() => _pendingCaptures = pending);
     _scrollToBottom();
+    return captures.isNotEmpty;
   }
 
   Future<void> _reloadPets() async {
@@ -509,6 +561,10 @@ class _AiChatPageState extends ConsumerState<AiChatPage> {
   Future<void> _applyPendingTo(Pet pet) async {
     final events = _pendingCaptures;
     if (events.isEmpty) return;
+    if (!canAutoWrite(pet)) {
+      _snack('「${pet.name}」是共享只读宠物，无法自动记录');
+      return;
+    }
     setState(() => _pendingCaptures = const []);
     final api = ref.read(apiClientProvider);
     final captures = <AiCapture>[];

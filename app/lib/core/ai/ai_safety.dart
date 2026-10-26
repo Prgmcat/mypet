@@ -128,8 +128,12 @@ String buildGlobalSystemPrompt(List<PetProfileContext> contexts) {
   final buffer = StringBuffer()
     ..writeln('你是「喵了个咪」宠物照护助手，账号下有多只宠物：$names。')
     ..writeln('用户可能同时提到多只宠物。先根据名字判断在说哪只；名字不明确时先追问，不要猜。')
-    ..writeln('系统会自动把用户明确陈述的体重、症状、换粮记录进对应宠物档案，'
-        '你负责自然回答和照护建议，不要声称自己保存了数据，也不要指导用户手动录入。')
+    ..writeln('自动记录由客户端完成，不由你完成。客户端会自动记录用户明确陈述的体重、症状、换粮和成长瞬间；'
+        '只读共享的宠物不会被自动写入。')
+    ..writeln('你没有写入、修改或查看页面的能力。不要声称已经记录/保存/归档，也不要判断成长记录等页面是否为空；'
+        '只有界面上的绿色「已自动记录」卡片才代表写入成功。')
+    ..writeln('用户要求“记下/记录/归档”时，回答“我会把这条整理成记录，请以下方卡片为准；'
+        '如果没出现卡片，请到对应宠物的记录页补记”，不要直接说已完成。')
     ..writeln();
   for (final context in contexts) {
     buffer.writeln('===== ${context.pet.name} 的档案 =====');
@@ -155,6 +159,7 @@ String buildSystemPrompt({
     '- 名字：${pet.name}',
     '- 物种/品种：${pet.speciesLabel}${pet.breed.isEmpty ? '' : ' / ${pet.breed}'}',
     '- 性别：${pet.sexLabel}；绝育：${pet.neuteredLabel}',
+    '- 访问权限：${pet.role == 'owner' ? '所有者（可读写）' : pet.role == 'co_caregiver' ? '共同照护（可新增记录）' : '只读共享（不能写入）'}',
     if (age.isNotEmpty) '- 年龄：$age',
     if (pet.currentWeightKg > 0)
       '- 当前体重：${pet.currentWeightKg.toStringAsFixed(1)} kg',
@@ -185,6 +190,9 @@ String buildSystemPrompt({
     '1. 结合当前宠物档案回答，不要给通用模板；信息不足时先追问。',
     '2. 禁止确诊、开处方、推荐人用药替代或给出具体药物剂量。',
     '3. 出现呼吸困难、抽搐、大量出血、误食毒物、无法排尿、意识丧失、难产、高热、严重外伤等情况，第一句话必须建议立即就医。',
+    '4. 自动记录由客户端完成；你没有写入能力。不要声称已记录/已保存/已归档，也不要判断页面是否为空。'
+        '只有绿色「已自动记录」卡片才代表写入成功。',
+    '5. 只读共享宠物不会被自动写入；需要记录时请让所有者操作。',
   ]);
   return lines.join('\n');
 }

@@ -18,6 +18,7 @@ class CaptureEvent {
     required this.label,
     this.weightKg,
     this.title = '',
+    this.occurredAt = '',
     this.payload = const {},
     this.note = '',
   });
@@ -29,6 +30,9 @@ class CaptureEvent {
   final String label;
   final double? weightKg;
   final String title;
+
+  /// Record date in YYYY-MM-DD. Empty means today.
+  String occurredAt;
   final Map<String, dynamic> payload;
   final String note;
 }
@@ -113,6 +117,7 @@ bool _looksLikeQuestion(String text) {
 const _recordWorthyWords = [
   ..._symptomWords,
   ..._dietWords,
+  ..._growthWords,
   '体重',
   '公斤',
   '千克',
@@ -129,6 +134,15 @@ bool looksRecordWorthy(String text) {
   return _recordWorthyWords.any(text.contains);
 }
 
+/// Whether a message is worth the model-based capture fallback. Growth stories
+/// often contain no health keyword, so a mentioned pet name is enough.
+bool shouldTryAiCapture(String text, List<Pet> pets) {
+  final value = text.trim();
+  if (value.length < 4 || _looksLikeQuestion(value)) return false;
+  if (looksRecordWorthy(value)) return true;
+  return pets.any((pet) => value.contains(pet.name));
+}
+
 /// Matches exactly one pet name in the text, or the only pet when unambiguous.
 Pet? matchPet(String text, List<Pet> pets) {
   final matches = pets.where((p) => text.contains(p.name)).toList();
@@ -137,9 +151,102 @@ Pet? matchPet(String text, List<Pet> pets) {
   return null;
 }
 
-String _today() {
-  final now = DateTime.now();
-  return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+String _formatDate(DateTime date) {
+  return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+}
+
+String _today() => _formatDate(DateTime.now());
+
+/// Normalizes an already formatted YYYY-MM-DD date; returns empty if invalid.
+String _normalizeDate(String raw) {
+  final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$').firstMatch(raw.trim());
+  if (match == null) return '';
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final day = int.parse(match.group(3)!);
+  final date = DateTime(year, month, day);
+  if (date.year != year || date.month != month || date.day != day) return '';
+  return _formatDate(date);
+}
+
+/// Extracts a record date from Chinese text. Falls back to today.
+String parseRecordDate(String text, {DateTime? now}) {
+  final base = now ?? DateTime.now();
+  final today = DateTime(base.year, base.month, base.day);
+
+  var match = RegExp(r'(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*[日号]?')
+      .firstMatch(text);
+  if (match != null) {
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final date = DateTime(year, month, day);
+    if (date.year == year && date.month == month && date.day == day) {
+      return _formatDate(date);
+    }
+  }
+
+  match = RegExp(r'(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]').firstMatch(text);
+  if (match != null) {
+    final month = int.parse(match.group(1)!);
+    final day = int.parse(match.group(2)!);
+    var date = DateTime(today.year, month, day);
+    if (date.month == month && date.day == day) {
+      // A date later than today most likely refers to last year.
+      if (date.isAfter(today)) date = DateTime(today.year - 1, month, day);
+      return _formatDate(date);
+    }
+  }
+
+  if (text.contains('大前天')) {
+    return _formatDate(today.subtract(const Duration(days: 3)));
+  }
+  if (text.contains('前天')) {
+    return _formatDate(today.subtract(const Duration(days: 2)));
+  }
+  if (text.contains('昨天')) {
+    return _formatDate(today.subtract(const Duration(days: 1)));
+  }
+  if (text.contains('今天') || text.contains('今日')) {
+    return _formatDate(today);
+  }
+  match = RegExp(r'(\d{1,2})\s*天前').firstMatch(text);
+  if (match != null) {
+    final days = int.parse(match.group(1)!);
+    if (days >= 0 && days <= 3650) {
+      return _formatDate(today.subtract(Duration(days: days)));
+    }
+  }
+  return _formatDate(today);
+}
+
+final _recordCommandPattern = RegExp(
+  r'(记下|记一下|记录一下|记录下|帮我记|帮忙记|存一下|存档|归档|写成.{0,6}记录|作为.{0,6}记录|当做.{0,6}记录|当作.{0,6}记录)',
+);
+
+/// True when the user explicitly asks to save something into the profile.
+bool isRecordCommand(String text) => _recordCommandPattern.hasMatch(text);
+
+/// Viewer pets are shared read-only and cannot receive automatic writes.
+bool canAutoWrite(Pet pet) => pet.role != 'viewer';
+
+/// Finds the user message a bare "记下吧" command refers to. Returns null when
+/// there is no earlier message or it already produced a capture card.
+String? previousUserTextForCapture(List<AiStoredMessage> messages) {
+  var previous = -1;
+  for (var i = messages.length - 2; i >= 0; i--) {
+    if (messages[i].role == 'user' && messages[i].content.trim().isNotEmpty) {
+      previous = i;
+      break;
+    }
+  }
+  if (previous < 0) return null;
+  for (var i = previous + 1; i < messages.length - 1; i++) {
+    if (messages[i].isCapture && messages[i].captures.isNotEmpty) return null;
+    if (messages[i].role == 'user') break;
+  }
+  final content = messages[previous].content.trim();
+  return content.isEmpty ? null : content;
 }
 
 String _formatKg(double kg) {
@@ -168,6 +275,7 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
         petName: pet?.name ?? '',
         label: '体重 ${_formatKg(kg)} kg',
         weightKg: kg,
+        occurredAt: parseRecordDate(text),
         note: '来自 AI 对话',
       ));
     }
@@ -181,6 +289,7 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
       petName: pet?.name ?? '',
       label: '病历：$symptom',
       title: symptom,
+      occurredAt: parseRecordDate(text),
       payload: {'symptoms': symptom, 'note': text},
       note: text,
     ));
@@ -203,6 +312,7 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
       petName: pet?.name ?? '',
       label: '饮食：${product.isEmpty ? diet : product}',
       title: title.length > 30 ? title.substring(0, 30) : title,
+      occurredAt: parseRecordDate(text),
       payload: {'product': product, 'note': text},
       note: text,
     ));
@@ -217,6 +327,7 @@ List<CaptureEvent> parseLocalCaptures(String text, List<Pet> pets) {
       petName: pet?.name ?? '',
       label: '成长：$title',
       title: title,
+      occurredAt: parseRecordDate(text),
       payload: {'note': text},
       note: text,
     ));
@@ -366,13 +477,13 @@ String _extractProduct(String text) {
 String buildCaptureExtractionPrompt(List<Pet> pets) {
   final list = pets.map((p) => '${p.name}（${p.speciesLabel}）').join('、');
   return '''
-你是宠物档案信息抽取器。已知账号下的宠物：$list。
+你是宠物档案信息抽取器。今天是 ${_today()}。已知账号下的宠物：$list。
 从用户这句话里提取需要写入档案的已发生事实，只输出一个 JSON 对象，不要 markdown 或解释。
 格式：
 {"events":[
- {"kind":"weight|medical|diet","pet":"宠物名字或空字符串","weightKg":2.5,
+ {"kind":"weight|medical|diet","pet":"宠物名字或空字符串","occurredAt":"YYYY-MM-DD","weightKg":2.5,
   "title":"不超过 20 字","note":"原始描述","product":"换粮/食品名称"},
- {"kind":"growth","pet":"宠物名字或空字符串","title":"不超过 20 字","note":"原始描述"},
+ {"kind":"growth","pet":"宠物名字或空字符串","occurredAt":"YYYY-MM-DD","title":"不超过 20 字","note":"原始描述"},
  {"kind":"pet","name":"新宠物名字","species":"cat|dog|other","breed":"","sex":"male|female|unknown",
   "birthday":"YYYY-MM-DD 或空","ageMonths":24,"weightKg":2.5,"neutered":"yes|no|unknown","note":"原始描述"}
 ]}
@@ -387,6 +498,7 @@ String buildCaptureExtractionPrompt(List<Pet> pets) {
 6. 没有可记录内容时输出 {"events":[]}；不要编造数值或名字。
 7. 同一句话如果已经输出 weight、medical 或 diet，就不要再输出 growth。
 8. growth 的 title 用用户的原话概括，不要写成医疗建议；note 保留原始描述。
+9. occurredAt 解析用户陈述的日期：支持“今天/昨天/前天/10月5号/2026-10-05”等；没有日期时用今天。
 ''';
 }
 
@@ -415,6 +527,9 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
     }
     if (pet == null && pets.length == 1 && petName.isEmpty) pet = pets.first;
     final note = ((item['note'] as String?) ?? '').trim();
+    final rawOccurredAt = ((item['occurredAt'] as String?) ?? '').trim();
+    final occurredAt =
+        _normalizeDate(rawOccurredAt).isEmpty ? _today() : _normalizeDate(rawOccurredAt);
     if (kind == 'pet') {
       final name = ((item['name'] as String?) ?? '').trim();
       if (name.isEmpty || name.length > 20) continue;
@@ -473,6 +588,7 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
         petName: pet?.name ?? petName,
         label: '体重 ${_formatKg(kg)} kg',
         weightKg: kg,
+        occurredAt: occurredAt,
         note: note.isEmpty ? '来自 AI 对话' : note,
       ));
     } else if (kind == 'medical' || kind == 'diet') {
@@ -489,6 +605,7 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
         title: kind == 'medical'
             ? (title.isEmpty ? '症状记录' : title)
             : (title.isEmpty ? '饮食记录' : title),
+        occurredAt: occurredAt,
         payload: kind == 'medical'
             ? {'symptoms': title, 'note': note}
             : {'product': product, 'note': note},
@@ -503,6 +620,7 @@ List<CaptureEvent> parseCaptureJson(String raw, List<Pet> pets) {
         petName: pet?.name ?? petName,
         label: '成长：$resolved',
         title: resolved.length > 30 ? resolved.substring(0, 30) : resolved,
+        occurredAt: occurredAt,
         payload: {'note': note.isEmpty ? resolved : note},
         note: note.isEmpty ? resolved : note,
       ));
@@ -545,10 +663,10 @@ Future<AiCapture> applyCapture(ApiClient api, CaptureEvent event) async {
   if (event.petId.isEmpty) {
     throw StateError('缺少宠物');
   }
-  final today = _today();
+  final occurredAt = event.occurredAt.isEmpty ? _today() : event.occurredAt;
   if (event.kind == 'weight') {
     final weight = await api.createWeight(event.petId, {
-      'measuredAt': today,
+      'measuredAt': occurredAt,
       'weightKg': event.weightKg,
       'note': event.note,
     });
@@ -562,7 +680,7 @@ Future<AiCapture> applyCapture(ApiClient api, CaptureEvent event) async {
   }
   final record = await api.createRecord(event.petId, {
     'type': event.kind,
-    'occurredAt': today,
+    'occurredAt': occurredAt,
     'title': event.title.isEmpty ? event.label : event.title,
     'payload': event.payload,
     'hospital': '',

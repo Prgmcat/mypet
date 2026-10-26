@@ -3,10 +3,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaolegemi/core/ai/ai_capture.dart';
+import 'package:miaolegemi/core/ai/ai_sessions.dart';
 import 'package:miaolegemi/core/api_client.dart';
 import 'package:miaolegemi/core/models.dart';
 
-Pet buildPet(String id, String name, String species) => Pet(
+Pet buildPet(String id, String name, String species, {String role = 'owner'}) => Pet(
       id: id,
       ownerUserId: 'u1',
       name: name,
@@ -23,7 +24,7 @@ Pet buildPet(String id, String name, String species) => Pet(
       identityNo: 'PET-$id',
       status: 'active',
       version: 1,
-      role: 'owner',
+      role: role,
     );
 
 void main() {
@@ -78,6 +79,92 @@ void main() {
     expect(events.first.petId, mimi.id);
     expect(events.first.title, contains('抓蝴蝶'));
     expect(events.first.payload['note'], contains('抓蝴蝶'));
+  });
+
+  test('screenshot story records a growth moment with its date', () {
+    final shou = buildPet('p3', '手抓饼', 'cat');
+    final events = parseLocalCaptures(
+      '手抓饼10月5号在阳台上抓蝴蝶，然后被蜜蜂蛰了地脚垫子，她疼得喵喵叫，笑死我了。',
+      [shou],
+    );
+    expect(events.length, 1);
+    expect(events.single.kind, 'growth');
+    expect(events.single.petId, shou.id);
+    expect(events.single.occurredAt, endsWith('-10-05'));
+  });
+
+  test('record date parsing supports absolute and relative dates', () {
+    final now = DateTime(2026, 10, 26);
+    expect(parseRecordDate('10月5号', now: now), '2026-10-05');
+    expect(parseRecordDate('2026年10月5日', now: now), '2026-10-05');
+    expect(parseRecordDate('2026-10-05', now: now), '2026-10-05');
+    expect(parseRecordDate('昨天', now: now), '2026-10-25');
+    expect(parseRecordDate('前天', now: now), '2026-10-24');
+    expect(parseRecordDate('3天前', now: now), '2026-10-23');
+    expect(parseRecordDate('没写日期', now: now), '2026-10-26');
+  });
+
+  test('record commands and growth worthiness are detected', () {
+    expect(isRecordCommand('记下吧，当做她的成长记录'), true);
+    expect(isRecordCommand('记录一下今天抓蝴蝶'), true);
+    expect(isRecordCommand('今天咪咪很开心地抓蝴蝶'), false);
+    expect(looksRecordWorthy('今天咪咪抓蝴蝶'), true);
+  });
+
+  test('model fallback is attempted for pet stories but not questions', () {
+    final shou = buildPet('p3', '手抓饼', 'cat');
+    expect(shouldTryAiCapture('手抓饼今天在窗边发呆', [shou]), true);
+    expect(shouldTryAiCapture('手抓饼今天玩得开心吗', [shou]), false);
+    expect(shouldTryAiCapture('今天天气不错', [shou]), false);
+  });
+
+  test('record command uses the previous user story', () {
+    final messages = [
+      AiStoredMessage(
+        role: 'user',
+        content: '手抓饼10月5号在阳台上抓蝴蝶，然后被蜜蜂蛰了地脚垫子。',
+      ),
+      AiStoredMessage(role: 'assistant', content: '先观察脚垫。'),
+      AiStoredMessage(role: 'user', content: '记下吧，当做她的成长记录'),
+    ];
+    expect(previousUserTextForCapture(messages), contains('抓蝴蝶'));
+  });
+
+  test('an already captured story is not captured twice', () {
+    final messages = [
+      AiStoredMessage(role: 'user', content: '今天咪咪抓蝴蝶'),
+      AiStoredMessage(role: 'assistant', content: '好的。'),
+      AiStoredMessage(
+        role: 'capture',
+        content: '已自动记录',
+        captures: [
+          AiCapture(
+            kind: 'record',
+            id: 'r1',
+            petId: 'p1',
+            petName: '咪咪',
+            label: '成长：抓蝴蝶',
+          ),
+        ],
+      ),
+      AiStoredMessage(role: 'user', content: '记下吧'),
+    ];
+    expect(previousUserTextForCapture(messages), isNull);
+  });
+
+  test('viewer pets cannot receive automatic writes', () {
+    final viewer = buildPet('p4', '小白', 'cat', role: 'viewer');
+    expect(canAutoWrite(viewer), false);
+    expect(canAutoWrite(mimi), true);
+  });
+
+  test('AI JSON keeps the occurredAt date', () {
+    final events = parseCaptureJson(
+      '{"events":[{"kind":"growth","pet":"咪咪","occurredAt":"2026-10-05",'
+      '"title":"第一次抓到蝴蝶","note":"10月5号抓蝴蝶"}]}',
+      pets,
+    );
+    expect(events.single.occurredAt, '2026-10-05');
   });
 
   test('growth questions are not recorded', () {

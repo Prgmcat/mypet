@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:miaolegemi/core/ai/ai_safety.dart';
 import 'package:miaolegemi/core/models.dart';
 
-Pet buildPet() => Pet(
+Pet buildPet({String role = 'owner'}) => Pet(
       id: 'pet-1',
       ownerUserId: 'u1',
       name: '咪咪',
@@ -19,7 +19,7 @@ Pet buildPet() => Pet(
       identityNo: 'PET2026123456',
       status: 'active',
       version: 1,
-      role: 'owner',
+      role: role,
     );
 
 void main() {
@@ -85,6 +85,31 @@ void main() {
     // Risk-level labels and AI disclaimers are intentionally not requested.
     expect(prompt, isNot(contains('风险级别')));
     expect(prompt, isNot(contains('不能替代兽医')));
+  });
+
+  test('prompt states the model cannot write and respects viewer pets', () {
+    final prompt = buildSystemPrompt(
+      pet: buildPet(role: 'viewer'),
+      records: const [],
+      weights: const [],
+    );
+    expect(prompt, contains('访问权限'));
+    expect(prompt, contains('只读共享'));
+    expect(prompt, contains('没有写入能力'));
+  });
+
+  test('global prompt includes growth and the green capture card rule', () {
+    final prompt = buildGlobalSystemPrompt([
+      PetProfileContext(
+        pet: buildPet(),
+        records: const [],
+        weights: const [],
+      ),
+    ]);
+    expect(prompt, contains('成长'));
+    expect(prompt, contains('已自动记录'));
+    expect(prompt, contains('没有写入'));
+    expect(prompt, contains('只读'));
   });
 
   test('record extraction prompt requests a single JSON object', () {
