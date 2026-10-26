@@ -11,7 +11,10 @@ import 'models.dart';
 
 /// The app is intentionally single-server: the domain is built in and the
 /// interface never asks the user to configure it.
-const defaultServerUrl = 'http://yangqingwen0911.iask.in';
+const defaultServerUrl = String.fromEnvironment(
+  'SERVER_URL',
+  defaultValue: 'http://yangqingwen0911.iask.in',
+);
 const _tokenKey = 'mypet_device_token';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());

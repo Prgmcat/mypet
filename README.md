@@ -80,7 +80,11 @@ go run ./cmd/mypet doctor -data ./data
 
 App 内置服务器域名 `http://yangqingwen0911.iask.in`，登录页不再显示或要求填写服务器地址。
 
-本地开发时，把 `app/lib/core/session.dart` 里的 `defaultServerUrl` 临时改为本机地址（模拟器用 `http://10.0.2.2:8787`，真机可配合 `adb reverse tcp:8787 tcp:8787` 使用 `http://127.0.0.1:8787`），或在局域网内使用电脑 IP。
+本地开发时用 `--dart-define` 覆盖服务器地址（模拟器用 `http://10.0.2.2:8787`，真机可配合 `adb reverse tcp:8787 tcp:8787` 使用 `http://127.0.0.1:8787`），或在局域网内使用电脑 IP：
+
+```bash
+flutter run --dart-define=SERVER_URL=http://10.0.2.2:8787
+```
 
 ```bash
 cd app
