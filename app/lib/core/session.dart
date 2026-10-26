@@ -9,6 +9,7 @@ import 'accounts.dart';
 import 'api_client.dart';
 import 'cache.dart';
 import 'models.dart';
+import 'server_scope.dart';
 
 /// Built-in server used when the user has not configured a self-hosted one.
 /// It can also be overridden at build time with `--dart-define=SERVER_URL=...`.
@@ -16,8 +17,11 @@ const defaultServerUrl = String.fromEnvironment(
   'SERVER_URL',
   defaultValue: 'http://yangqingwen0911.iask.in',
 );
-const _tokenKey = 'mypet_device_token';
 const _serverKey = 'mypet_custom_server_url';
+
+/// The device token belongs to one server. The built-in server keeps the
+/// legacy key; self-hosted servers get a scope prefix.
+String get _tokenKey => '${ServerScope.prefix}mypet_device_token';
 
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
 
@@ -90,6 +94,10 @@ class SessionController extends StateNotifier<SessionState> {
     final custom = await _loadCustomServer();
     final serverUrl = custom ?? defaultServerUrl;
     final isCustom = custom != null;
+    final isolated = isCustom &&
+        ServerScope.normalize(custom) !=
+            ServerScope.normalize(defaultServerUrl);
+    ServerScope.setFor(serverUrl, isCustom: isolated);
     final token = await _secure.read(key: _tokenKey);
     if (token == null || token.isEmpty) {
       state = SessionState(
@@ -147,6 +155,10 @@ class SessionController extends StateNotifier<SessionState> {
       await prefs.setString(_serverKey, custom);
     }
     final serverUrl = custom ?? defaultServerUrl;
+    final isolated = custom != null &&
+        ServerScope.normalize(custom) !=
+            ServerScope.normalize(defaultServerUrl);
+    ServerScope.setFor(serverUrl, isCustom: isolated);
     _api.configure(baseUrl: serverUrl);
     state = state.copyWith(
       serverUrl: serverUrl,

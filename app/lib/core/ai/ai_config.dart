@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../server_scope.dart';
+
 class AiProviderConfig {
   const AiProviderConfig({
     required this.id,
@@ -135,9 +137,9 @@ class AiConfigStore {
   );
 
   static String _providersKey(String userId) =>
-      'mypet_ai_providers_$userId';
+      '${ServerScope.prefix}mypet_ai_providers_$userId';
   static String _keyName(String userId, String providerId) =>
-      'mypet_ai_key_${userId}_$providerId';
+      '${ServerScope.prefix}mypet_ai_key_${userId}_$providerId';
 
   /// Stored configs merged with presets, so new presets appear automatically.
   static Future<List<AiProviderConfig>> load(String userId) async {

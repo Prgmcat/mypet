@@ -3,13 +3,15 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
+import 'server_scope.dart';
 
 /// Small read-only cache so the app can show the last known data offline.
 /// Server remains the only source of truth; cache is per user and clearable.
 class LocalCache {
   LocalCache._();
 
-  static String _prefix(String userId) => 'mypet_cache_${userId}_';
+  static String _prefix(String userId) =>
+      '${ServerScope.prefix}mypet_cache_${userId}_';
 
   static String _key(String userId, String name) => '${_prefix(userId)}$name';
 

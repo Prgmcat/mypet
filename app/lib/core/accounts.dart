@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'server_scope.dart';
+
 /// A locally remembered login. Passwords live only in the platform secure
 /// storage (Android Keystore-backed), never in shared preferences or logs.
 class SavedAccount {
@@ -51,7 +53,7 @@ List<SavedAccount> upsertAccount(
 class AccountStore {
   AccountStore._();
 
-  static const _key = 'mypet_saved_accounts';
+  static String get _key => '${ServerScope.prefix}mypet_saved_accounts';
   static const _max = 8;
   static const _secure = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),

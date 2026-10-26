@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../server_scope.dart';
+
 class AiCapture {
   AiCapture({
     required this.kind,
@@ -135,7 +137,8 @@ class AiSession {
 class AiSessionStore {
   AiSessionStore._();
 
-  static String _key(String userId) => 'mypet_ai_sessions_$userId';
+  static String _key(String userId) =>
+      '${ServerScope.prefix}mypet_ai_sessions_$userId';
 
   static Future<List<AiSession>> load(String userId) async {
     final prefs = await SharedPreferences.getInstance();

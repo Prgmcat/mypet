@@ -213,6 +213,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       showToast(context, error, error: true);
       return;
     }
+    // Credentials from the previous server must not carry over to the new one.
+    setState(() {
+      _username.clear();
+      _password.clear();
+      _matched = false;
+    });
+    FocusScope.of(context).unfocus();
+    await _loadAccounts();
+    if (!mounted) return;
     showToast(context, result.trim().isEmpty ? '已恢复默认服务器' : '服务器地址已保存');
   }
 
