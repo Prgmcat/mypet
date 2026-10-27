@@ -109,12 +109,12 @@ flutter build apk --release --split-per-abi
 
 ```bash
 cd server
-LD="-s -w -X main.version=1.0.0"
-go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-windows-amd64.exe ./cmd/mypet
-GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-linux-amd64  ./cmd/mypet
-GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-linux-arm64  ./cmd/mypet
-GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-darwin-amd64 ./cmd/mypet
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.0-darwin-arm64 ./cmd/mypet
+LD="-s -w -X main.version=1.0.1"
+go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.1-windows-amd64.exe ./cmd/mypet
+GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.1-linux-amd64  ./cmd/mypet
+GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.1-linux-arm64  ./cmd/mypet
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.1-darwin-amd64 ./cmd/mypet
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "$LD" -o ../dist/server/mypet-1.0.1-darwin-arm64 ./cmd/mypet
 ```
 
 完整产物（APK + 服务端）统一放在项目根目录 `dist/`，该目录已在 `.gitignore` 中忽略。
